@@ -4,6 +4,7 @@
 !/.gitignore
 !/README.md
 !/run_zzzdm.bat
+!/assets/
 !/webui_server.py
 !/tg_zzzdm_to_wecom.py
 !/ui_config.example.json
