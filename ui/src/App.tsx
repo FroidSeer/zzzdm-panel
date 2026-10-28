@@ -20,6 +20,8 @@ import {
   Eraser,
   Moon,
   Sun,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
 import { useApi } from './api'
 import { useToast } from './toast'
@@ -71,6 +73,8 @@ export default function App() {
   const [sel, setSel] = useState<Set<number>>(new Set())
   /** 关键词自动保存的反馈：保存中 / 已存（带时间）/ 失败 */
   const [kwSave, setKwSave] = useState<'saving' | 'saved' | 'error' | ''>('')
+  // key 默认遮住：截图 / 录屏 / 共享屏幕时不至于直接泄露
+  const [showKey, setShowKey] = useState(false)
   const kwSavedAt = useRef('')
   const autoRef = useRef<number>(0)
   const saveTimer = useRef<number>(0)
@@ -454,12 +458,26 @@ export default function App() {
               <Panel title="推送设置" icon={<Settings2 className="size-3.5" />}>
                 <div className="space-y-3">
                   <Field label="企业微信 webhook key" hint="群机器人">
-                    <input
-                      className={inputCls}
-                      value={cfg.key}
-                      onChange={(e) => patch({ key: e.target.value.trim() })}
-                      placeholder="粘贴 key= 后面那串"
-                    />
+                    <div className="relative">
+                      <input
+                        className={cn(inputCls, 'pr-10')}
+                        type={showKey ? 'text' : 'password'}
+                        value={cfg.key}
+                        onChange={(e) => patch({ key: e.target.value.trim() })}
+                        placeholder="粘贴 key= 后面那串"
+                        autoComplete="new-password"
+                        spellCheck={false}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowKey((v) => !v)}
+                        title={showKey ? '隐藏' : '显示'}
+                        aria-label={showKey ? '隐藏 key' : '显示 key'}
+                        className="absolute top-1/2 right-1 grid size-8 -translate-y-1/2 place-items-center rounded-md text-dim transition hover:bg-ink-700 hover:text-fg"
+                      >
+                        {showKey ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                      </button>
+                    </div>
                   </Field>
                   <Field label="代理" hint="留空用系统代理">
                     <input
