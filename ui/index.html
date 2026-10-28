@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>真正值得买 · 推送面板</title>
+    <script>
+      // 在首帧之前定好白天/夜间，避免刷新时闪一下
+      ;(function () {
+        try {
+          // ?theme=dark / ?theme=light 可直接指定（方便分享链接、也方便截图核对）
+          var q = ''
+          try {
+            q = new URLSearchParams(location.search).get('theme') || ''
+          } catch (e) {}
+          var v = q === 'dark' || q === 'light' ? q : localStorage.getItem('zzzdm-theme')
+          var dark = v === 'dark' || (v !== 'light' && !window.matchMedia('(prefers-color-scheme: light)').matches)
+          document.documentElement.classList.toggle('dark', dark)
+          document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
+        } catch (e) {}
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

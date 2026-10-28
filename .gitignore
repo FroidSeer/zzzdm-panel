@@ -1,0 +1,26 @@
+# 本仓库只跟踪 zzzdm 推送面板相关的文件，其余工作区内容一律排除。
+/*
+
+!/.gitignore
+!/README.md
+!/run_zzzdm.bat
+!/webui_server.py
+!/tg_zzzdm_to_wecom.py
+!/ui_config.example.json
+!/ui/
+
+# 前端依赖与构建产物
+/ui/node_modules/
+/ui/dist/
+
+# 运行时数据：含企业微信 webhook key，绝不入库
+/ui_config.json
+/ui_config.json.bak
+/ui_config.json.broken
+/ui_state.json
+/logs/
+/__pycache__/
+
+# 临时与试验目录
+/.scratch/
+/.tmp/
