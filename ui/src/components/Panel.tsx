@@ -110,20 +110,26 @@ export function Field({
 }
 
 export const inputCls =
-  'h-9 w-full rounded-lg border border-line bg-ink-950 px-3 text-sm text-fg outline-none transition placeholder:text-dim focus:border-brand/70 focus:ring-2 focus:ring-brand/20'
+  'h-9 w-full rounded-lg border border-line bg-ink-950 px-3 text-sm text-fg outline-none transition placeholder:text-dim focus:border-brand-strong focus:ring-2 focus:ring-brand-strong/25'
 
 export function SwitchPill({ checked }: { checked: boolean }) {
   return (
+    // 必须是 block 级的盒子：<span> 默认 display:inline，宽高不生效，
+    // 轨道会塌成 0×0，只剩一个悬空的白色圆点 —— 开关看起来永远是「关」。
     <span
       className={cn(
-        'relative h-5 w-9 shrink-0 self-center rounded-full transition',
-        checked ? 'brand-gradient' : 'bg-ink-600',
+        'relative inline-block h-5 w-9 shrink-0 self-center rounded-full',
+        'ring-1 ring-inset transition-colors duration-200',
+        checked
+          ? 'brand-gradient ring-black/10 dark:ring-white/10'
+          : 'bg-switch-off ring-black/8 dark:ring-white/8',
       )}
     >
       <span
         className={cn(
-          'absolute top-0.5 size-4 rounded-full bg-white shadow transition-all',
-          checked ? 'left-4.5' : 'left-0.5',
+          'absolute top-0.5 left-0.5 size-4 rounded-full bg-white transition-transform duration-200',
+          'shadow-[0_1px_2px_rgba(16,24,40,0.28)]',
+          checked ? 'translate-x-4' : 'translate-x-0',
         )}
       />
     </span>

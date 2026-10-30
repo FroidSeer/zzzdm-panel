@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import {
   BellRing,
   Building2,
-  Check,
   ChevronDown,
   FlaskConical,
   MessageSquare,
@@ -14,34 +13,35 @@ import { cn } from '../lib/utils'
 import { Button } from './Button'
 import { Field, inputCls, SwitchPill } from './Panel'
 
-/** 通道元信息：图标、名字、一句话说明、是否需要额外字段 */
-const META: Record<
-  ChannelName,
-  { icon: typeof Radio; name: string; desc: string; tone: string }
-> = {
+/**
+ * 通道元信息。
+ * `tile` 是启用后图标块的底色 —— 用通道自己的色相浅染，
+ * 关掉时退回中性灰，一眼就能看出哪几个是活的。
+ */
+const META: Record<ChannelName, { icon: typeof Radio; name: string; desc: string; tile: string }> = {
   wecom: {
     icon: Building2,
     name: '企业微信',
     desc: '群机器人 · 图文合成一张卡片',
-    tone: 'text-emerald-600 dark:text-emerald-400',
+    tile: 'bg-emerald-500/12 text-emerald-700 dark:bg-emerald-400/12 dark:text-emerald-300',
   },
   serverchan: {
     icon: Server,
     name: 'Server酱',
     desc: '微信服务号 · markdown 图文',
-    tone: 'text-sky-600 dark:text-sky-400',
+    tile: 'bg-sky-500/12 text-sky-700 dark:bg-sky-400/12 dark:text-sky-300',
   },
   pushplus: {
     icon: BellRing,
     name: 'PushPlus',
     desc: '微信推送 · markdown 图文',
-    tone: 'text-amber-600 dark:text-amber-400',
+    tile: 'bg-amber-500/14 text-amber-800 dark:bg-amber-400/12 dark:text-amber-300',
   },
   mp: {
     icon: MessageSquare,
     name: '公众号',
     desc: '模板消息 · 纯文字（可放测试号）',
-    tone: 'text-violet-600 dark:text-violet-400',
+    tile: 'bg-violet-500/12 text-violet-700 dark:bg-violet-400/12 dark:text-violet-300',
   },
 }
 
@@ -95,6 +95,15 @@ export function ChannelBar({
   const ch = cfg.channels
   const active = ORDER.filter((n) => ch?.[n]?.enabled)
 
+  // 触发器上直接写清楚「推到哪」，不再只给一个含义不明的数字
+  const label =
+    active.length === 0
+      ? '未启用通道'
+      : active.length === 1
+        ? META[active[0]].name
+        : `${META[active[0]].name} +${active.length - 1}`
+  const activeNames = active.map((n) => META[n].name).join('、')
+
   /** 改某个通道的配置：只替换那个通道的对象，其余原样带过去 */
   const setChan = (name: ChannelName, patch: Record<string, unknown>) => {
     if (!ch) return
@@ -106,71 +115,91 @@ export function ChannelBar({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        title="选择推送通道"
+        aria-expanded={open}
+        aria-haspopup="true"
+        aria-label={`推送通道：${activeNames || '未启用'}`}
+        title={active.length ? `推送到：${activeNames}` : '还没有启用任何推送通道'}
         className={cn(
-          'inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-sm transition',
+          'inline-flex h-10 items-center gap-2 rounded-lg border pr-2 pl-2.5 text-sm transition',
           open
-            ? 'border-brand/60 bg-brand/10 text-brand'
-            : 'border-line bg-ink-700 text-dim hover:border-ink-600 hover:bg-ink-600 hover:text-fg',
+            ? 'border-brand/50 bg-brand/8 ring-2 ring-brand/15'
+            : 'border-line bg-ink-700 hover:border-ink-600 hover:bg-ink-600',
         )}
       >
-        <Radio className="size-4" />
-        <span className="hidden sm:inline">通道</span>
+        <Radio
+          className={cn('size-4 shrink-0 transition-colors', active.length ? 'text-brand-text' : 'text-dim')}
+        />
+        {/* 窄屏也写通道名：只留一个数字就成了「通道 1」那种谁也看不懂的状态 */}
         <span
           className={cn(
-            'tabular rounded-md px-1.5 py-0.5 text-xs font-semibold',
-            active.length ? 'bg-brand/15 text-brand' : 'bg-ink-600 text-dim',
+            'max-w-[6.5rem] truncate text-sm',
+            active.length ? 'text-fg' : 'text-dim',
           )}
         >
-          {active.length}
+          {label}
         </span>
-        <ChevronDown className={cn('size-3.5 transition-transform', open && 'rotate-180')} />
+        <ChevronDown
+          className={cn('size-3.5 shrink-0 text-dim transition-transform', open && 'rotate-180')}
+        />
       </button>
 
       {open && (
-        <div className="fade-up absolute top-12 right-0 z-50 w-[380px] rounded-xl border border-line bg-ink-800 p-3 shadow-2xl shadow-black/20">
-          <div className="mb-2 flex items-center justify-between px-1">
-            <span className="text-xs font-semibold tracking-[0.1em] text-dim uppercase">
-              推送通道
+        <div className="fade-up absolute top-12 left-0 z-50 w-[392px] max-w-[calc(100vw-2.5rem)] origin-top-left overflow-hidden rounded-xl border border-line bg-ink-800 shadow-[0_18px_44px_-16px_rgba(16,24,40,0.28),0_2px_8px_-2px_rgba(16,24,40,0.06)] sm:left-auto sm:right-0 sm:origin-top-right dark:shadow-[0_18px_44px_-16px_rgba(0,0,0,0.72),0_2px_8px_-2px_rgba(0,0,0,0.4)]">
+          <div className="flex items-baseline justify-between gap-2 border-b border-line/70 px-3.5 pt-3 pb-2.5">
+            <span className="text-[13px] font-semibold text-fg">推送通道</span>
+            <span className="text-xs text-dim">
+              {active.length ? `已启用 ${active.length} / ${ORDER.length}` : '都还没启用'}
             </span>
-            <span className="text-xs text-dim">可多选，各推一遍 · Esc 关闭</span>
           </div>
 
-          <div className="thin-scroll max-h-[70vh] space-y-1.5 overflow-y-auto pr-0.5">
+          <div className="thin-scroll max-h-[70vh] overflow-y-auto p-1.5">
             {ORDER.map((name) => {
               const meta = META[name]
               const conf = ch?.[name]
               const on = !!conf?.enabled
               const Icon = meta.icon
               const isOpen = expand === name
+              const toggle = () => setExpand(isOpen ? '' : name)
               return (
                 <div
                   key={name}
                   className={cn(
-                    'rounded-lg border transition',
-                    on ? 'border-brand/35 bg-ink-950' : 'border-line bg-ink-950/60',
+                    'rounded-lg transition-colors',
+                    on ? 'bg-brand/8 ring-1 ring-brand/10 ring-inset' : 'hover:bg-ink-900',
                   )}
                 >
-                  <div className="flex items-center gap-2.5 p-2.5">
+                  <div className="flex items-center gap-3 px-2 py-2">
                     <span
                       className={cn(
-                        'flex size-8 shrink-0 items-center justify-center rounded-md bg-ink-700',
-                        on ? meta.tone : 'text-dim',
+                        'grid size-9 shrink-0 place-items-center rounded-[10px] transition-colors',
+                        on ? meta.tile : 'bg-ink-700 text-dim',
                       )}
                     >
-                      <Icon className="size-4" />
+                      <Icon className="size-[18px]" strokeWidth={1.9} />
                     </span>
+
                     <button
                       type="button"
-                      onClick={() => setExpand(isOpen ? '' : name)}
-                      className="min-w-0 flex-1 text-left"
+                      onClick={toggle}
+                      aria-expanded={isOpen}
+                      className="group flex min-w-0 flex-1 items-center gap-1.5 text-left"
                     >
-                      <span className="flex items-center gap-1.5 text-[13px] font-medium text-fg">
-                        {meta.name}
-                        {on && <Check className="size-3 text-brand" />}
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[13px] font-medium text-fg">
+                          {meta.name}
+                        </span>
+                        <span className="block truncate text-[11.5px] leading-snug text-dim">
+                          {meta.desc}
+                        </span>
                       </span>
-                      <span className="block truncate text-xs text-dim">{meta.desc}</span>
+                      <ChevronDown
+                        className={cn(
+                          'size-3.5 shrink-0 text-dim transition-transform group-hover:text-fg',
+                          isOpen && 'rotate-180',
+                        )}
+                      />
                     </button>
+
                     <button
                       type="button"
                       role="switch"
@@ -178,21 +207,14 @@ export function ChannelBar({
                       aria-label={`${on ? '停用' : '启用'}${meta.name}`}
                       onClick={() => setChan(name, { enabled: !on })}
                       title={on ? '停用' : '启用'}
+                      className="-mr-1 shrink-0 rounded-full p-1"
                     >
                       <SwitchPill checked={on} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setExpand(isOpen ? '' : name)}
-                      aria-label={isOpen ? `收起${meta.name}配置` : `展开${meta.name}配置`}
-                      className="text-dim hover:text-fg"
-                    >
-                      <ChevronDown className={cn('size-3.5 transition-transform', isOpen && 'rotate-180')} />
                     </button>
                   </div>
 
                   {isOpen && (
-                    <div className="border-t border-line/70 px-2.5 pt-2 pb-2.5">
+                    <div className="mr-2 mb-2 ml-14 rounded-lg bg-ink-950/70 p-3">
                       {name === 'wecom' && (
                         <p className="text-xs leading-relaxed text-dim">
                           沿用下方「推送设置」里的 webhook key。发出的是合成卡片：
@@ -252,7 +274,9 @@ export function ChannelBar({
                                   <input
                                     value={ch?.mp?.fields?.[f.k] ?? ''}
                                     onChange={(e) =>
-                                      setChan(name, { fields: { ...ch?.mp?.fields, [f.k]: e.target.value } })
+                                      setChan(name, {
+                                        fields: { ...ch?.mp?.fields, [f.k]: e.target.value },
+                                      })
                                     }
                                     placeholder={f.hint}
                                     className={cn(inputCls, 'h-8 text-xs')}
@@ -264,9 +288,9 @@ export function ChannelBar({
                         </div>
                       )}
 
-                      <div className="mt-2 flex items-center justify-between">
-                        <span className="text-xs text-dim">
-                          {on ? '已启用，点右侧可先测一条' : '启用后才能测试'}
+                      <div className="mt-2.5 flex items-center justify-between gap-3">
+                        <span className="text-[11.5px] leading-snug text-dim">
+                          {on ? '已启用，可先测一条' : '启用后才能测试'}
                         </span>
                         <Button
                           size="sm"
@@ -286,7 +310,7 @@ export function ChannelBar({
             })}
           </div>
 
-          <p className="mt-2 px-1 text-xs leading-relaxed text-dim">
+          <p className="border-t border-line/70 px-3.5 py-2.5 text-[11px] leading-relaxed text-dim">
             企业微信限速 20 条/分钟；Server酱与 PushPlus 走 markdown 图文，图片为外链 URL。
           </p>
         </div>

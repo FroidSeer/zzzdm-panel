@@ -5,6 +5,22 @@ export interface Post {
   links: string[]
   photos: string[]
   url: string
+  /** 服务端解析出的商品信息（品名/价格/商家/值率/券），和推出去的图同源 */
+  deal?: Deal
+}
+
+/** 与 webui_server.deal_json 一一对应 */
+export interface Deal {
+  name: string
+  price: string
+  price_note: string
+  shop: string
+  good: string
+  bad: string
+  coupon: string
+  url: string
+  /** 正文里那句「为什么值得买」 */
+  reason: string
 }
 
 export interface Stats {
@@ -79,6 +95,19 @@ export interface Stats {
   pushed?: number
 }
 
+export interface PushProgress {
+  running: boolean
+  /** 已处理条数（跨通道累计） */
+  done: number
+  /** 总条数（帖子 × 通道数） */
+  total: number
+  /** 正在发的通道名，例如「企业微信」 */
+  label: string
+  ok: number
+  fail: number
+  phase: string
+}
+
 export interface Snapshot {
   posts: Post[]
   excluded: Post[]
@@ -89,6 +118,8 @@ export interface Snapshot {
   last_error: string
   fetch_warn?: string
   pushing: boolean
+  /** 推送进度，轮询时用 */
+  push?: PushProgress
   job?: { last_run: string; running: boolean }
   log: LogEntry[]
   config: Config
@@ -106,6 +137,10 @@ export interface PushResult {
   sent?: string
   error?: string
   stats?: Stats
+  /** 用户点了「中止」 */
+  cancelled?: boolean
+  ok_count?: number
+  fail_count?: number
 }
 export function linkKind(url: string): 'buy' | 'post' | 'detail' | 'other' {
   if (/u\.jd\.com|item\.jd\.com|taobao|tmall|tb\.cn|pinduoduo|p\.pinduoduo/.test(url)) return 'buy'

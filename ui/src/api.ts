@@ -65,22 +65,35 @@ export function useApi() {
   const pushNow = useCallback(
     async (cfg: Config, opts?: { ids?: number[]; skipPushed?: boolean; force?: boolean }) => {
       setBusy('push')
+      // 推送是几分钟的长请求，期间每 1.2s 拉一次状态，页面上的「已发 37/173」才有数据
+      const timer = window.setInterval(() => void refresh(), 1200)
       try {
         const body: Record<string, unknown> = { ...diffConfig(cfg, baseCfg.current) }
         if (opts?.ids?.length) body.ids = opts.ids
         if (opts?.skipPushed !== undefined) body.skip_pushed = opts.skipPushed
         if (opts?.force) body.force = true
         const r = await post<PushResult>('/api/push', body)
-        await refresh()
         return r
       } catch (e) {
         return { ok: false, error: String(e) } as PushResult
       } finally {
+        window.clearInterval(timer)
+        await refresh()
         setBusy('')
       }
     },
     [refresh],
   )
+
+  /** 请求中止推送：服务端在下一次进度回调时停下，已经发出去的不受影响 */
+  const cancelPush = useCallback(async () => {
+    try {
+      const r = await post<{ ok: boolean; error?: string }>('/api/push_cancel', {})
+      return r
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
+  }, [])
 
   const saveConfig = useCallback(async (cfg: Config) => {
     try {
@@ -133,5 +146,5 @@ export function useApi() {
     [],
   )
 
-  return { snap, busy, refresh, fetchNow, pushNow, saveConfig, clearPushed, refilter, testChannel }
+  return { snap, busy, refresh, fetchNow, pushNow, cancelPush, saveConfig, clearPushed, refilter, testChannel }
 }

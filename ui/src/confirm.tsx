@@ -103,7 +103,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
                 ref={cancelRef}
                 type="button"
                 onClick={() => settle(false)}
-                className="h-9 rounded-lg border border-line bg-ink-950 px-4 text-sm text-fg transition hover:border-ink-600 focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:outline-none"
+                className="h-9 rounded-lg border border-line bg-ink-950 px-4 text-sm text-fg transition hover:border-ink-600 focus-visible:ring-2 focus-visible:ring-brand-text focus-visible:outline-none"
               >
                 {pending.opts.cancelText ?? '取消'}
               </button>
@@ -113,7 +113,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
                 className={
                   pending.opts.danger
                     ? 'h-9 rounded-lg bg-red-600 px-4 text-sm font-medium text-white transition hover:bg-red-500 focus-visible:ring-2 focus-visible:ring-red-500/50 focus-visible:outline-none'
-                    : 'brand-gradient h-9 rounded-lg px-4 text-sm font-medium text-white transition hover:brightness-110 focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:outline-none'
+                    : 'brand-gradient h-9 rounded-lg px-4 text-sm font-medium text-white transition hover:brightness-95 focus-visible:ring-2 focus-visible:ring-brand-text focus-visible:outline-none'
                 }
               >
                 {pending.opts.confirmText ?? '确定'}

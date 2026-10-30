@@ -12,6 +12,7 @@ zzzdm 可视化面板：本地起一个网页，实时展示 t.me/zzzdm 的今�
 import argparse
 import json
 import os
+import re
 import shutil
 import sys
 import threading
@@ -82,9 +83,19 @@ _state = {
     "last_fetch": None,
     "last_error": "",
     "pushing": False,
+    # 推送进度：前端轮询 /api/state 拿它画进度条，done/total 跨通道累计
+    "push": {"running": False, "done": 0, "total": 0, "label": "", "ok": 0, "fail": 0, "phase": ""},
     "fetch_warn": "",   # 抓取过程中断等非致命问题
     "log": [],
 }
+
+# 中止信号：/api/push_cancel 置位，推送循环里每次进度回调都会检查
+_cancel = threading.Event()
+
+
+class PushCancelled(Exception):
+    """用户点了「中止」。用异常穿出 core.push_posts 的发送循环，避免逐层改签名。"""
+
 
 # 已推送记录：{ "帖子id": "推送时间" }，以及定时任务水位
 _pushed = {}
@@ -406,12 +417,26 @@ def _push_mp(conf, cfg, pool, log, progress):
     return ok_n, fail_n, hit
 
 
+def _set_push(**kw):
+    with _lock:
+        cur = dict(_state["push"])
+        cur.update(kw)
+        _state["push"] = cur
+
+
+# 最近一次推送的收尾结果，/api/push 用它告诉前端「是正常结束还是被中止」
+_last_push = {"cancelled": False, "ok": 0, "fail": 0}
+
+
 def do_push(cfg, ids=None, skip_pushed=None, force=False):
     """推送。ids 给定时只推这些；否则推全部保留项。
 
     多通道：channels.*.enabled 为真的通道各推一遍；
     任一通道成功即视为这条帖子推送成功，写进已推送记录。
     skip_pushed=True 时跳过已推送过的帖子；force=True 无视记录强制重推。
+
+    进度写进 _state["push"]，前端轮询 /api/state 显示「已发 37/173」；
+    /api/push_cancel 置位 _cancel 后，下一次进度回调会抛 PushCancelled 结束发送。
     """
     with _lock:
         if _state["pushing"]:
@@ -420,6 +445,11 @@ def do_push(cfg, ids=None, skip_pushed=None, force=False):
         _state["pushing"] = True
         pool = list(_state["filtered"])
         pushed_now = set(_pushed)
+    _cancel.clear()
+    _set_push(running=True, done=0, total=0, label="准备中", ok=0, fail=0, phase="准备中")
+    _last_push.update(cancelled=False, ok=0, fail=0)
+    ok_all = fail_all = 0
+    cancelled = False
     try:
         targets = enabled_channels(cfg)
         if not targets:
@@ -448,14 +478,21 @@ def do_push(cfg, ids=None, skip_pushed=None, force=False):
             return False
 
         add_log(f"推送通道：{' + '.join(CHANNEL_LABEL[n] for n in names)}")
+        grand_total = len(pool) * len(targets)
+        _set_push(total=grand_total, phase="发送中")
 
         ok_all = fail_all = 0
         done = set()
+        base = 0  # 已经跑完的通道累计条数，用来把各通道进度拼成一条总进度
+
         for name, conf in targets:
             label = CHANNEL_LABEL[name]
 
-            def _progress(done_n, total_n, _l=label):
+            def _progress(done_n, total_n, _l=label, _base=base):
                 # 企微群机器人限速 20 条/分钟，逐条记录会淹没日志，这里按 10 条一档
+                if _cancel.is_set():
+                    raise PushCancelled()
+                _set_push(done=_base + done_n, total=grand_total, label=_l, phase=f"{_l}发送中")
                 if done_n == total_n or done_n % 10 == 0:
                     add_log(f"{_l}进度：{done_n}/{total_n}")
 
@@ -466,27 +503,90 @@ def do_push(cfg, ids=None, skip_pushed=None, force=False):
                     ok_n, fail_n, hit = _push_mp(conf, cfg, pool, add_log, _progress)
                 else:
                     ok_n, fail_n, hit = _push_markdown(name, conf, cfg, pool, add_log, _progress)
+            except PushCancelled:
+                with _lock:
+                    n_done = _state["push"]["done"]
+                add_log(f"已中止：{label} 处理到 {n_done}/{grand_total} 条，已经发出去的无法撤回")
+                cancelled = True
+                break
             except Exception as e:
                 add_log(f"[{label}] 推送异常：{e}")
                 fail_all += 1
+                base += len(pool)
                 continue
             ok_all += ok_n
             fail_all += fail_n
             done |= hit
+            base += len(pool)
+            _set_push(done=base, ok=ok_all, fail=fail_all)
             add_log(f"[{label}] 结束：成功 {ok_n} 条，失败 {fail_n} 条")
             time.sleep(1.0)
 
         if done:
             mark_pushed(sorted(done))
             add_log(f"已记录 {len(done)} 条为已推送")
-        add_log(f"推送结束：成功 {ok_all} 条，失败 {fail_all} 条，覆盖 {len(pool)} 篇帖子")
-        return fail_all == 0
+        if cancelled:
+            add_log(f"推送已中止：成功 {ok_all} 条，失败 {fail_all} 条")
+        else:
+            add_log(f"推送结束：成功 {ok_all} 条，失败 {fail_all} 条，覆盖 {len(pool)} 篇帖子")
+        return (not cancelled) and fail_all == 0
     except Exception as e:
         add_log(f"推送异常：{e}")
         return False
     finally:
         with _lock:
             _state["pushing"] = False
+            cur = dict(_state["push"])
+            cur.update(running=False, phase="已结束")
+            _state["push"] = cur
+        _last_push.update(cancelled=cancelled, ok=ok_all, fail=fail_all)
+        _cancel.clear()
+
+
+_META_LINE = re.compile(r"^(价格|商家|值率|领券|到手|补贴|优惠)\s*[：:]")
+
+
+def _clean_reason(text):
+    """正文里除首行（品名）之外那句人话，就是「为什么值得买」。
+
+    Telegram 的排版约定是：品名 / 一句推荐语 / 价格 / 商家 / 值率 / 领券 / --- / 链接。
+    取第一句非元信息的长句，最多两行、120 字，够卡片用。
+    """
+    buf = []
+    for raw in (text or "").splitlines()[1:]:
+        line = raw.strip()
+        if not line:
+            continue
+        if _META_LINE.match(line) or set(line) <= {"-", "—", "="} or line.startswith("【"):
+            break
+        buf.append(line)
+        if sum(len(x) for x in buf) >= 120 or len(buf) >= 2:
+            break
+    return " ".join(buf)[:160]
+
+
+def deal_json(p):
+    """面板用的结构化商品信息。
+
+    和推出去的那张图同源（core.parse_deal），所以面板里看到的
+    品名/价格/商家/值率和微信群里的图不会对不上。
+    """
+    try:
+        d = core.parse_deal(p)
+    except Exception:
+        d = {"name": "", "price": "", "price_note": "", "shop": "",
+             "good": "", "bad": "", "coupon": "", "url": ""}
+    return {
+        "name": d.get("name") or "",
+        "price": d.get("price") or "",
+        "price_note": d.get("price_note") or "",
+        "shop": d.get("shop") or "",
+        "good": d.get("good") or "",
+        "bad": d.get("bad") or "",
+        "coupon": d.get("coupon") or "",
+        "url": d.get("url") or "",
+        "reason": _clean_reason(p.get("text") or ""),
+    }
 
 
 def post_json(p, tz):
@@ -499,6 +599,7 @@ def post_json(p, tz):
         "links": p["links"],
         "photos": p["photos"],
         "url": f"https://t.me/zzzdm/{p['id']}",
+        "deal": deal_json(p),
     }
 
 
@@ -530,6 +631,7 @@ def snapshot(cfg):
             "last_error": _state["last_error"],
             "fetch_warn": _state.get("fetch_warn", ""),
             "pushing": _state["pushing"],
+            "push": dict(_state["push"]),
             "job": {"last_run": _job.get("last_run", ""), "running": _job.get("running", False)},
             "log": _state["log"][-40:],
             "config": cfg,
@@ -870,7 +972,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError):
+            # 推送要跑好几分钟，用户中途关页面/刷新是常事，别让断开的连接刷一屏栈
+            pass
 
     def do_GET(self):
         path = urllib.parse.urlparse(self.path).path
@@ -943,6 +1049,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"ok": True, "error": "",
                                     "stats": snapshot(cfg)["stats"]})
 
+        if self.path == "/api/push_cancel":
+            # 只置位信号：真正的停止发生在下一次进度回调（最多差一条消息）
+            if not _state["pushing"]:
+                return self._send(200, {"ok": False, "error": "当前没有进行中的推送"})
+            _cancel.set()
+            add_log("已请求中止推送，正在收尾…")
+            return self._send(200, {"ok": True})
+
         if self.path == "/api/push":
             ids = body.get("ids")
             skip = body.get("skip_pushed")
@@ -951,7 +1065,8 @@ class Handler(BaseHTTPRequestHandler):
             with _lock:
                 tail = [x["m"] for x in _state["log"][-4:]]
             summary = tail[-1] if tail else ""
-            return self._send(200, {"ok": ok, "sent": summary,
+            return self._send(200, {"ok": ok, "sent": summary, "cancelled": _last_push["cancelled"],
+                                    "ok_count": _last_push["ok"], "fail_count": _last_push["fail"],
                                     "error": "" if ok else " / ".join(tail),
                                     "stats": snapshot(cfg)["stats"]})
 

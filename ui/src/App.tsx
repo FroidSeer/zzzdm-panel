@@ -21,11 +21,13 @@ import {
   Sun,
   Eye,
   EyeOff,
+  Loader2,
+  CircleStop,
 } from 'lucide-react'
 import { useApi } from './api'
 import { useToast } from './toast'
 import { useConfirm } from './confirm'
-import type { ChannelName, Config, Snapshot } from './types'
+import type { ChannelName, Config, PushResult, Snapshot } from './types'
 import { Button } from './components/Button'
 import { PostCard } from './components/PostCard'
 import { HourChart } from './components/HourChart'
@@ -62,8 +64,25 @@ function StatCard({
   )
 }
 
+const CHANNEL_LABEL: Record<ChannelName, string> = {
+  wecom: '企业微信',
+  serverchan: 'Server酱',
+  pushplus: 'PushPlus',
+  mp: '公众号',
+}
+
+/** 已启用的通道名，顺序固定，跟服务端 CHANNEL_ORDER 一致 */
+function activeChannels(cfg: Config | null): ChannelName[] {
+  const ch = cfg?.channels
+  if (!ch) return []
+  return (['wecom', 'serverchan', 'pushplus', 'mp'] as const).filter((n) => ch[n]?.enabled)
+}
+
+/** 批量超过这个数就必须先确认：一次误点就是上百条图文刷进真实微信群 */
+const PUSH_CONFIRM_AT = 10
+
 export default function App() {
-  const { snap, busy, fetchNow, pushNow, saveConfig, clearPushed, refilter, testChannel } = useApi()
+  const { snap, busy, fetchNow, pushNow, cancelPush, saveConfig, clearPushed, refilter, testChannel } = useApi()
   const { show: toast } = useToast()
   const confirm = useConfirm()
   const [theme, toggleTheme] = useTheme()
@@ -245,20 +264,70 @@ export default function App() {
   }
 
   /**
+   * 推送前的分级确认。
+   *
+   * 1–10 条：直接发（多数是随手挑几条，加摩擦只会让人点得更快）
+   * >10 条：走确认框，写清通道、条数、预计耗时、能否撤回；默认焦点在「取消」
+   * 服务端限速 20 条/分钟，173 条要 9 分钟，这期间用户必须在页头看得到进度
+   */
+  const askPush = async (n: number, title: string) => {
+    const names = activeChannels(cfg)
+    if (!names.length) {
+      toast('没有启用任何推送通道，先在右上角「推送到…」里打开一个', false)
+      return false
+    }
+    if (n <= PUSH_CONFIRM_AT) return true
+    const mins = Math.max(1, Math.ceil(n / 20))
+    return confirm({
+      title,
+      body: (
+        <>
+          将把 <b className="text-fg">{n}</b> 条图文发到{' '}
+          <b className="text-fg">{names.map((x) => CHANNEL_LABEL[x]).join(' + ')}</b>。按群机器人限速
+          20 条/分钟，预计 <b className="text-fg">{mins}</b> 分钟，期间页头会显示进度、可以随时中止，
+          但<b className="text-fg">已经发出去的无法撤回</b>。
+        </>
+      ),
+      confirmText: `推送 ${n} 条`,
+      danger: n >= 30,
+    })
+  }
+
+  /** 推送结束后的统一汇报：中止 / 全成功 / 有失败，三种说法不一样 */
+  const reportPush = (r: PushResult, fallback: number) => {
+    if (r.cancelled) {
+      toast(`已中止：本次成功 ${r.ok_count ?? 0} 条，失败 ${r.fail_count ?? 0} 条`, false)
+    } else if (r.ok) {
+      toast(`推送完成：成功 ${r.ok_count ?? fallback} 条`, true)
+    } else {
+      toast(`推送失败：${r.error || r.sent || '未知错误'}`, false)
+    }
+  }
+
+  /** 中止：服务端在下一条消息发完后停下，避免留半条在队列里 */
+  const onCancelPush = async () => {
+    const r = await cancelPush()
+    toast(r.ok ? '已请求中止，当前这条发完就停' : `中止失败：${r.error ?? '未知错误'}`, !!r.ok)
+  }
+
+  /**
    * 全部重推：破坏性操作，必须二次确认。
    * 一次误点就是上百条图文刷进真实微信群，而且没法撤回。
    */
   const onPush = async () => {
     if (!cfg) return
-    const ch = cfg.channels
-    const active = ch ? (['wecom', 'serverchan', 'pushplus', 'mp'] as const).filter((n) => ch[n]?.enabled) : []
+    const names = activeChannels(cfg)
     const n = snap?.stats.shown ?? 0
+    if (!names.length) {
+      toast('没有启用任何推送通道，先在右上角「推送到…」里打开一个', false)
+      return
+    }
     const go = await confirm({
       title: '确认把全部帖子重推一遍？',
       body: (
         <>
           将把 <b className="text-fg">{n}</b> 条帖子（<b className="text-fg">含已经推送过的</b>）再发一次到{' '}
-          <b className="text-fg">{active.length}</b> 个已启用的通道。这个操作无法撤回。
+          <b className="text-fg">{names.map((x) => CHANNEL_LABEL[x]).join(' + ')}</b>。这个操作无法撤回。
         </>
       ),
       confirmText: '确认重推',
@@ -266,22 +335,24 @@ export default function App() {
     })
     if (!go) return
     const r = await pushNow(cfg, { skipPushed: false })
-    toast(r.ok ? `推送完成：${r.sent ?? ''}` : `推送失败：${r.error}`, r.ok)
+    reportPush(r, n)
   }
 
   /** 只推还没推过的：每天重复跑也不会刷屏 */
   const onPushNew = async () => {
-    if (!cfg) return
+    if (!cfg || pendingCount === 0) return
+    if (!(await askPush(pendingCount, `确认推送 ${pendingCount} 条未推送的？`))) return
     const r = await pushNow(cfg, { skipPushed: true })
-    toast(r.ok ? `推送完成：${r.sent ?? ''}` : `没有新内容或推送失败：${r.error}`, r.ok)
+    reportPush(r, pendingCount)
   }
 
   const onPushSelected = async () => {
     if (!cfg || sel.size === 0) return
     const n = sel.size
+    if (!(await askPush(n, `确认推送勾选的 ${n} 条？`))) return
     const r = await pushNow(cfg, { ids: [...sel] })
-    if (r.ok) setSel(new Set())
-    toast(r.ok ? `已推送勾选的 ${n} 条：${r.sent ?? ''}` : `推送失败：${r.error}`, r.ok)
+    if (r.ok || r.cancelled) setSel(new Set())
+    reportPush(r, n)
   }
 
   const onClearPushed = async () => {
@@ -370,24 +441,73 @@ export default function App() {
     <div className="min-h-screen">
       {/* header */}
       <header className="glass sticky top-0 z-30 border-b border-line">
-        <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-3 px-5 py-3">
-          <div className="flex items-center gap-2">
-            <span className="brand-gradient flex size-8 items-center justify-center rounded-lg text-white shadow-lg shadow-brand/30">
+        <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-x-3 gap-y-2 px-5 py-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="brand-gradient flex size-8 shrink-0 items-center justify-center rounded-lg text-white shadow-lg shadow-brand/30 dark:shadow-black/50">
               <Sparkles className="size-4" />
             </span>
-            <h1 className="text-[15px] font-semibold tracking-wide">
-              真正值得买 <span className="text-brand">zzzdm</span>
-              <span className="ml-2 text-xs font-normal text-dim">推送面板</span>
+            <h1 className="min-w-0 truncate text-[19px] leading-tight font-semibold tracking-wide">
+              真正值得买 <span className="text-brand-text">zzzdm</span>
+              <span className="ml-2 hidden align-middle text-xs font-normal text-dim sm:inline">
+                推送面板
+              </span>
             </h1>
           </div>
 
-          <Badge text={snap?.last_fetch ? `抓取于 ${snap.last_fetch}` : '未抓取'} icon={<Clock className="size-3" />} />
-          {snap?.last_error ? <Badge text={snap.last_error.slice(0, 46)} danger /> : null}
-          {snap?.fetch_warn ? <Badge text={`数据可能不完整：${snap.fetch_warn.slice(0, 40)}`} danger /> : null}
-          {snap?.job?.last_run ? <Badge text={`定时 ${cfg?.daily_time} · 上次 ${snap.job.last_run.slice(5)}`} /> : null}
-          {busy === 'push' && <Badge text="推送中" pulse />}
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <Badge
+              text={
+                snap?.last_fetch ? (
+                  <>
+                    抓取于 <span className="sm:hidden">{snap.last_fetch.slice(11, 16)}</span>
+                    <span className="hidden sm:inline">{snap.last_fetch}</span>
+                  </>
+                ) : (
+                  '未抓取'
+                )
+              }
+              icon={<Clock className="size-3" />}
+            />
+            {snap?.last_error ? <Badge text={snap.last_error.slice(0, 46)} danger /> : null}
+            {snap?.fetch_warn ? <Badge text={`数据可能不完整：${snap.fetch_warn.slice(0, 40)}`} danger /> : null}
+            {snap?.job?.last_run ? <Badge text={`定时 ${cfg?.daily_time} · 上次 ${snap.job.last_run.slice(5)}`} /> : null}
+          </div>
 
-          <div className="ml-auto flex items-center gap-2">
+          {/* 推送进度：全页最高风险动作的唯一反馈，别让它退回成一个「推送中」灰标 */}
+          {snap?.push?.running && (
+            <div className="fade-in flex w-full items-center gap-2 rounded-lg border border-brand/35 bg-brand/8 px-2.5 py-1.5 sm:w-auto">
+              <Loader2 className="size-3.5 shrink-0 animate-spin text-brand-ink" />
+              <span className="tabular shrink-0 text-xs font-semibold text-brand-ink">
+                {snap.push.label || '推送中'} {snap.push.done}/{snap.push.total || '—'}
+              </span>
+              <div
+                className="h-1.5 min-w-16 flex-1 overflow-hidden rounded-full bg-brand/20 ring-1 ring-brand/10 ring-inset sm:w-24 sm:flex-none"
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={snap.push.total}
+                aria-valuenow={snap.push.done}
+                aria-label="推送进度"
+              >
+                <div
+                  className="brand-gradient h-full rounded-full transition-[width] duration-500"
+                  style={{
+                    width: `${snap.push.total ? Math.min(100, (snap.push.done / snap.push.total) * 100) : 4}%`,
+                  }}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={onCancelPush}
+                className="inline-flex shrink-0 items-center gap-1 rounded-md border border-line bg-ink-800 px-2 py-1 text-xs text-fg transition hover:border-red-500/50 hover:text-red-600 dark:hover:text-red-300"
+                title="发完当前这条就停，已经发出去的无法撤回"
+              >
+                <CircleStop className="size-3.5" />
+                中止
+              </button>
+            </div>
+          )}
+
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
             {cfg && (
               <ChannelBar
                 cfg={cfg}
@@ -404,9 +524,9 @@ export default function App() {
             >
               {theme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
             </button>
-            <Button onClick={onFetch} loading={busy === 'fetch'} disabled={!cfg}>
+            <Button onClick={onFetch} loading={busy === 'fetch'} disabled={!cfg} title="抓取今天的帖子">
               <RefreshCw className="size-4" />
-              刷新抓取
+              <span className="hidden sm:inline">刷新抓取</span>
             </Button>
             {sel.size > 0 && (
               <Button
@@ -428,17 +548,22 @@ export default function App() {
               title="只推送还没推过的帖子，适合每天定时跑"
             >
               <Send className="size-4" />
-              推未推送 <span className="tabular">{pendingCount}</span>
+              <span className="sm:hidden">推</span>
+              <span className="hidden sm:inline">推未推送</span>
+              <span className="tabular">{pendingCount}</span>
             </Button>
-            <Button
-              variant="ghost"
-              onClick={onPush}
-              loading={busy === 'push'}
-              disabled={!cfg || !posts.length}
-              title="无视推送记录，全部重发一遍"
-            >
-              全部重推
-            </Button>
+            {/* 手机上收进「推送设置」面板底部，桌面仍在页头 —— 让首屏少一行动作按钮 */}
+            <div className="hidden sm:block">
+              <Button
+                variant="ghost"
+                onClick={onPush}
+                loading={busy === 'push'}
+                disabled={!cfg || !posts.length || snap?.push?.running}
+                title="无视推送记录，全部重发一遍"
+              >
+                全部重推
+              </Button>
+            </div>
           </div>
         </div>
       </header>
@@ -486,7 +611,7 @@ export default function App() {
                 value={keyword}
                 onChange={(e) => setKeyword(e.target.value)}
                 aria-label="在已抓到的帖子里搜索关键词"
-                placeholder="在已抓到的帖子里搜关键词（品牌、商品、补贴…）"
+                placeholder="搜品牌 / 商品 / 补贴"
                 className={cn(inputCls, 'pl-9')}
               />
             </div>
@@ -495,6 +620,8 @@ export default function App() {
                 <KeywordCountBadge n={cfg.exclude.length} enabled={cfg.filter_enabled} />
               </span>
             )}
+            {/* 390px 下三个控件并排，输入区只剩 ~140px，占位文字必须短到不换行不硬切；
+                完整说明留在 aria-label 里。 */}
             <span className="tabular shrink-0 rounded-lg border border-line bg-ink-800 px-3 py-2 text-xs text-dim">
               {filtered.length} / {posts.length}
             </span>
@@ -514,7 +641,7 @@ export default function App() {
               title="全选/取消当前列表中的帖子"
             >
               {filtered.length > 0 && filtered.every((p) => sel.has(p.id)) ? (
-                <CheckSquare className="size-3.5 text-brand" />
+                <CheckSquare className="size-3.5 text-brand-text" />
               ) : (
                 <Square className="size-3.5" />
               )}
@@ -524,7 +651,7 @@ export default function App() {
 
           {sel.size > 0 && (
             <div className="fade-in mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-brand/35 bg-brand/8 px-3 py-2">
-              <span className="tabular text-xs font-semibold text-brand">
+              <span className="tabular text-xs font-semibold text-brand-ink">
                 已选 {sel.size} 条
               </span>
               <span className="text-xs text-dim">
@@ -543,9 +670,20 @@ export default function App() {
             </div>
           )}
 
-          <div className="space-y-3">
+          {/*
+           * ≥1280px 走两列：215 张卡 × 216px 单列等于 5 万像素的滚动条，
+           * 1440 屏上右侧 aside 只占 360px，单列把剩下四分之一白白空着。
+           * aside 是 sticky 的，两列不会影响它的可见性。
+           */}
+          <div className="grid items-start gap-3 xl:grid-cols-2">
             {filtered.length === 0 ? (
-              <Empty hasFetched={!!snap?.last_fetch} keyword={keyword} />
+              <div className="xl:col-span-2">
+                <Empty
+                  hasFetched={!!snap?.last_fetch}
+                  keyword={keyword}
+                  onClear={() => setKeyword('')}
+                />
+              </div>
             ) : (
               displayOrder.map((p) => (
                 <PostCard
@@ -651,23 +789,23 @@ export default function App() {
                       <CalendarClock className="size-3" />
                       每日定时（服务端，关掉网页也跑）
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <Field label="每天几点" hint="留空关闭">
-                        <input
-                          className={inputCls}
-                          type="time"
-                          value={cfg.daily_time || ''}
-                          onChange={(e) => patch({ daily_time: e.target.value })}
-                        />
-                      </Field>
-                      <div className="flex items-end pb-2">
-                        <Switch
-                          checked={cfg.auto_push ?? false}
-                          onChange={(v) => patch({ auto_push: v })}
-                          label="抓完自动推送"
-                          hint={cfg.auto_push ? '只推未推送过的' : '只抓取不推送'}
-                        />
-                      </div>
+                    {/* 时间输入独占一行、开关独占一行：并排放时右格只有 ~140px，
+                        Switch 的 label 会被挤成「抓完自动/推送」两行，看起来像坏掉。 */}
+                    <Field label="每天几点" hint="留空关闭">
+                      <input
+                        className={inputCls}
+                        type="time"
+                        value={cfg.daily_time || ''}
+                        onChange={(e) => patch({ daily_time: e.target.value })}
+                      />
+                    </Field>
+                    <div className="mt-2">
+                      <Switch
+                        checked={cfg.auto_push ?? false}
+                        onChange={(v) => patch({ auto_push: v })}
+                        label="抓完自动推送"
+                        hint={cfg.auto_push ? '只推未推送过的' : '只抓取不推送'}
+                      />
                     </div>
                     <Button className="mt-2 w-full" size="sm" onClick={onSave}>
                       <Save className="size-3.5" />
@@ -697,6 +835,17 @@ export default function App() {
                       清空推送记录（当前 {snap.stats.pushed} 条已推）
                     </button>
                   ) : null}
+                  {/* 页头在 <640px 隐藏了这个入口，改放这里，避免手机上多占一行 */}
+                  <button
+                    type="button"
+                    onClick={onPush}
+                    disabled={!posts.length || snap?.push?.running}
+                    className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-line py-1.5 text-xs text-dim transition hover:border-red-500/40 hover:text-red-600 disabled:opacity-40 sm:hidden dark:hover:text-red-300"
+                    title="无视推送记录，全部重发一遍（含已经推送过的）"
+                  >
+                    <RefreshCw className="size-3" />
+                    全部重推一遍（含已推）
+                  </button>
                   {snap && snap.excluded.length > 0 && (
                     <p className="text-xs leading-relaxed text-dim">
                       已过滤 {snap.excluded.length} 条，例如「{snap.excluded[0]?.text.slice(0, 22)}…」
@@ -723,7 +872,7 @@ export default function App() {
                     .reverse()
                     .map((l, i) => (
                       <div key={i} className="flex gap-2 border-b border-white/4 py-1 last:border-0">
-                        <span className="shrink-0 text-brand">{l.t}</span>
+                        <span className="shrink-0 text-brand-text">{l.t}</span>
                         <span className="break-all text-dim">{l.m}</span>
                       </div>
                     ))}
@@ -738,7 +887,17 @@ export default function App() {
   )
 }
 
-function Badge({ text, icon, danger, pulse }: { text: string; icon?: React.ReactNode; danger?: boolean; pulse?: boolean }) {
+function Badge({
+  text,
+  icon,
+  danger,
+  pulse,
+}: {
+  text: React.ReactNode
+  icon?: React.ReactNode
+  danger?: boolean
+  pulse?: boolean
+}) {
   return (
     <span
       className={cn(
@@ -753,13 +912,30 @@ function Badge({ text, icon, danger, pulse }: { text: string; icon?: React.React
   )
 }
 
-function Empty({ hasFetched, keyword }: { hasFetched: boolean; keyword: string }) {
+function Empty({
+  hasFetched,
+  keyword,
+  onClear,
+}: {
+  hasFetched: boolean
+  keyword: string
+  onClear?: () => void
+}) {
   return (
     <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-line py-20 text-center">
       <Package className="mb-3 size-9 text-dim" />
       <p className="text-sm text-dim">
         {keyword ? `没有匹配「${keyword}」的帖子` : hasFetched ? '今天还没有抓到帖子' : '点右上角「刷新抓取」开始'}
       </p>
+      {keyword && onClear && (
+        <button
+          type="button"
+          onClick={onClear}
+          className="mt-3 rounded-lg border border-line bg-ink-800 px-3 py-1.5 text-xs text-fg transition hover:border-ink-600 hover:bg-ink-700"
+        >
+          清除搜索
+        </button>
+      )}
     </div>
   )
 }

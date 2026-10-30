@@ -48,7 +48,7 @@ function Hit({ text, word }: { text: string; word: string }) {
   return (
     <>
       {text.slice(0, i)}
-      <mark className="rounded bg-brand/25 px-0.5 text-brand">{text.slice(i, i + word.length)}</mark>
+      <mark className="rounded bg-brand/15 px-0.5 text-brand-ink">{text.slice(i, i + word.length)}</mark>
       {text.slice(i + word.length)}
     </>
   )
@@ -192,7 +192,7 @@ export function KeywordEditor({
             <button
               type="button"
               onClick={() => onChange([...words, ...missingDefaults])}
-              className="text-brand/80 hover:text-brand"
+              className="text-dim transition hover:text-brand-text"
               title={`补回 ${missingDefaults.length} 个内置关键词`}
             >
               补默认
@@ -242,7 +242,7 @@ export function KeywordEditor({
               <input
                 ref={inputRef}
                 aria-label="添加排除关键词"
-                className="h-8 flex-1 rounded-md border border-line bg-ink-900 px-2.5 text-xs text-fg outline-none placeholder:text-dim focus:border-brand/70 focus:ring-2 focus:ring-brand/20"
+                className="h-8 flex-1 rounded-md border border-line bg-ink-900 px-2.5 text-xs text-fg outline-none placeholder:text-dim focus:border-brand-strong focus:ring-2 focus:ring-brand-strong/25"
                 placeholder="输入后回车添加，支持逗号批量：尿裤, 婴儿"
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
@@ -334,7 +334,7 @@ export function KeywordEditor({
                 <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-dim" />
                 <input
                   aria-label="在排除关键词中搜索"
-                  className="h-8 w-full rounded-md border border-line bg-ink-900 pr-2.5 pl-8 text-xs text-fg outline-none placeholder:text-dim focus:border-brand/70"
+                  className="h-8 w-full rounded-md border border-line bg-ink-900 pr-2.5 pl-8 text-xs text-fg outline-none placeholder:text-dim focus:border-brand-strong"
                   placeholder={`在 ${words.length} 个关键词中搜索`}
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
@@ -410,7 +410,7 @@ export function KeywordEditor({
                           'shrink-0 rounded px-1.5 py-0.5 text-xs transition',
                           all
                             ? 'text-emerald-600 dark:text-emerald-400'
-                            : 'text-brand hover:bg-brand/10',
+                            : 'text-brand-text hover:bg-brand/10',
                         )}
                       >
                         {all ? '已全选' : `+${missing.length}`}

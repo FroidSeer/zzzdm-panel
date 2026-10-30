@@ -65,7 +65,7 @@ export function ExcludedDrawer({
           已按关键词排除 <b className="tabular font-semibold text-fg">{posts.length}</b> 条
           {posts.length > 0 && <span className="ml-1 text-dim">（点击核查误杀 · 可一键恢复词条）</span>}
         </span>
-        <span className="ml-auto flex items-center gap-1 text-xs font-medium text-brand">
+        <span className="ml-auto flex items-center gap-1 text-xs font-medium text-brand-text">
           {open ? '收起' : '展开核查'}
           <ChevronUp className={cn('size-3.5 transition', open && 'rotate-180')} />
         </span>
@@ -87,7 +87,7 @@ export function ExcludedDrawer({
                     onChange={(e) => setQ(e.target.value)}
                     aria-label="在已排除商品中搜索"
                     placeholder={`在 ${posts.length} 条里搜索`}
-                    className="h-8 w-full rounded-md border border-line bg-ink-950 pr-2.5 pl-8 text-xs text-fg outline-none placeholder:text-dim focus:border-brand/70"
+                    className="h-8 w-full rounded-md border border-line bg-ink-950 pr-2.5 pl-8 text-xs text-fg outline-none placeholder:text-dim focus:border-brand-strong"
                   />
                 </div>
               )}
