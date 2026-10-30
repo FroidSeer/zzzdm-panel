@@ -17,9 +17,14 @@
   --color-ink-600: #e3e8f0;
   --color-line: #e2e7ef;
   --color-fg: #18202c;
-  --color-dim: #6b7686;
+  --color-dim: #525d6d;
   --color-brand: #ff6b35;
+  --color-brand-soft: #ff9b5e;
   --font-sans: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+}
+
+html {
+  --header-h: 61px;
 }
 
 html.dark {
@@ -30,7 +35,7 @@ html.dark {
   --color-ink-600: #242c38;
   --color-line: #232b36;
   --color-fg: #e6edf3;
-  --color-dim: #8b949e;
+  --color-dim: #9ba5b0;
 }
 
 @layer base {

@@ -37,7 +37,7 @@ export function PostCard({
 }: {
   post: Post
   checked?: boolean
-  onToggle?: (id: number, on: boolean) => void
+  onToggle?: (id: number, on: boolean, shiftKey?: boolean) => void
   /** 已推送时间，有值说明这条推过了 */
   pushedAt?: string
 }) {
@@ -57,15 +57,24 @@ export function PostCard({
     return { left: r.left, top: r.top, width: r.width, height: r.height }
   }, [])
 
-  const { short, long } = useMemo(() => {
+  const { short, long, firstLine } = useMemo(() => {
     const t = post.text.trim()
-    return { short: t.slice(0, 220), long: t.length > 220 }
-  }, [post.text])
+    const fl = (t.split('\n').find((l) => l.trim()) || `帖子 #${post.id}`).slice(0, 60)
+    return { short: t.slice(0, 220), long: t.length > 220, firstLine: fl }
+  }, [post.text, post.id])
 
   return (
     <article
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return
+        if (e.key === ' ' && onToggle) {
+          e.preventDefault()
+          onToggle(post.id, !checked, e.shiftKey)
+        }
+      }}
       className={cn(
-        'fade-up group relative rounded-xl border bg-ink-800 p-4 transition hover:shadow-lg hover:shadow-black/5 dark:hover:shadow-black/20',
+        'fade-up group relative rounded-xl border bg-ink-800 p-4 outline-none transition hover:shadow-lg hover:shadow-black/5 focus-visible:ring-2 focus-visible:ring-brand/50 dark:hover:shadow-black/20',
         checked
           ? 'border-brand/60 bg-brand/5 shadow-sm shadow-brand/10'
           : 'border-line hover:border-ink-600 hover:bg-ink-800/80',
@@ -76,16 +85,19 @@ export function PostCard({
         {onToggle && (
           <button
             type="button"
-            onClick={() => onToggle(post.id, !checked)}
-            title={checked ? '取消勾选' : '勾选这条，只推送选中的'}
+            role="checkbox"
+            aria-checked={!!checked}
+            aria-label={`选择帖子 #${post.id}`}
+            onClick={(e) => onToggle(post.id, !checked, e.shiftKey)}
+            title={checked ? '取消勾选（按住 Shift 可连选）' : '勾选这条（按住 Shift 可范围连选）'}
             className={cn(
-              'flex size-4 shrink-0 items-center justify-center rounded border transition',
+              'flex size-5 shrink-0 items-center justify-center rounded border transition',
               checked
                 ? 'border-brand bg-brand text-white'
                 : 'border-ink-600 bg-ink-900 text-transparent hover:border-brand/70',
             )}
           >
-            <Check className="size-3" strokeWidth={3} />
+            <Check className="size-3.5" strokeWidth={3} />
           </button>
         )}
         <span className="tabular rounded-md bg-ink-700 px-2 py-0.5 text-xs text-dim">{post.time || '--:--'}</span>
@@ -93,21 +105,21 @@ export function PostCard({
           href={post.url}
           target="_blank"
           rel="noopener"
-          className="rounded-md border border-line px-2 py-0.5 text-[11px] text-dim transition hover:border-ink-600 hover:text-fg"
+          className="rounded-md border border-line px-2 py-0.5 text-xs text-dim transition hover:border-ink-600 hover:text-fg"
         >
           #{post.id}
         </a>
         <span className="ml-auto flex items-center gap-1.5">
           {pushedAt && (
             <span
-              className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-700 dark:text-emerald-300"
+              className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-700 dark:text-emerald-300"
               title={`已于 ${pushedAt} 推送`}
             >
               <Send className="size-3" />
               已推送
             </span>
           )}
-          <span className="text-[11px] text-dim/70 opacity-0 transition group-hover:opacity-100">{post.time}</span>
+          <span className="text-xs text-dim opacity-0 transition group-hover:opacity-100">{post.time}</span>
         </span>
       </header>
 
@@ -138,7 +150,7 @@ export function PostCard({
                     thumbs.current[i] = el
                   }}
                   src={src}
-                  alt=""
+                  alt={`${firstLine} 商品缩略图`}
                   loading="lazy"
                   referrerPolicy="no-referrer"
                   onError={() => setImgFailed(true)}

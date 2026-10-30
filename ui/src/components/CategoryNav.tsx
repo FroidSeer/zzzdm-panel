@@ -116,7 +116,7 @@ export function CategoryNav({
   return (
     <nav className="border-t border-line/70">
       <div className="mx-auto flex max-w-[1400px] items-center gap-1.5 overflow-x-auto px-5 py-2">
-        <span className="mr-1 hidden shrink-0 items-center gap-1 text-[11px] text-dim/70 sm:inline-flex">
+        <span className="mr-1 hidden shrink-0 items-center gap-1 text-xs text-dim sm:inline-flex">
           <Ban className="size-3.5" />
           排除大类
         </span>
@@ -148,24 +148,28 @@ export function CategoryNav({
         })}
 
         <div className="ml-auto flex shrink-0 items-center gap-1.5 pl-2">
-          <span className="tabular hidden text-[11px] text-dim/70 md:inline">
+          <span className="tabular hidden text-xs text-dim md:inline">
             {onCount > 0 ? `${onCount} 类全选` : ''}
             {partCount > 0 ? `${onCount > 0 ? ' · ' : ''}${partCount} 类部分` : ''}
             {custom.length > 0 ? ` · 自定义 ${custom.length}` : ''}
           </span>
           <button
             type="button"
-            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+            onClick={() => {
+              if (!open && !active) setActive(CATEGORIES[0]?.id ?? null)
+              setOpen((v) => !v)
+            }}
             className={cn(
-              'inline-flex items-center gap-1 rounded-lg border px-2 py-1.5 text-[11px] transition',
+              'inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs transition',
               open
                 ? 'border-ink-600 bg-ink-700 text-fg'
                 : 'border-line bg-ink-800 text-dim hover:border-ink-600 hover:text-fg',
             )}
             title="展开小类，单独排除某几项"
           >
-            小类
-            <ChevronDown className={cn('size-3 transition', open && 'rotate-180')} />
+            细分小类
+            <ChevronDown className={cn('size-3.5 transition', open && 'rotate-180')} />
           </button>
         </div>
       </div>
@@ -174,20 +178,20 @@ export function CategoryNav({
         <div className="fade-in mx-auto max-w-[1400px] px-5 pb-3">
           <div className="rounded-xl border border-line bg-ink-800/70 p-3">
             {!enabled && (
-              <p className="mb-2 rounded-md border border-red-500/25 bg-red-500/10 px-2.5 py-1.5 text-[11px] text-red-600 dark:text-red-300">
+              <p className="mb-2 rounded-md border border-red-500/25 bg-red-500/10 px-2.5 py-1.5 text-xs text-red-600 dark:text-red-300">
                 「启用关键词过滤」当前是关的，下面的勾选不会生效
               </p>
             )}
 
             <div className="mb-2 flex flex-wrap items-center gap-1.5">
-              <span className="text-[11px] text-dim/70">大类：</span>
+              <span className="text-xs text-dim">大类：</span>
               {CATEGORIES.map((c) => (
                 <button
                   key={c.id}
                   type="button"
                   onClick={() => setActive(c.id)}
                   className={cn(
-                    'rounded-md px-2 py-1 text-[11.5px] transition',
+                    'rounded-md px-2 py-1 text-xs transition',
                     active === c.id
                       ? 'bg-brand/15 text-brand'
                       : 'text-dim hover:bg-ink-700 hover:text-fg',
@@ -200,7 +204,7 @@ export function CategoryNav({
                 type="button"
                 onClick={clearCatalog}
                 disabled={onCount === 0 && partCount === 0}
-                className="ml-auto inline-flex items-center gap-1 rounded-md border border-line px-2 py-1 text-[11px] text-dim transition hover:border-red-500/40 hover:text-red-600 dark:hover:text-red-400 disabled:opacity-40"
+                className="ml-auto inline-flex items-center gap-1 rounded-md border border-line px-2 py-1 text-xs text-dim transition hover:border-red-500/40 hover:text-red-600 dark:hover:text-red-400 disabled:opacity-40"
                 title="把目录里的所有词都移出排除列表（自定义关键词保留）"
               >
                 <Eraser className="size-3" />
@@ -210,7 +214,7 @@ export function CategoryNav({
 
             {activeCat ? (
               <>
-                <p className="mb-2 text-[10.5px] text-dim/60">
+                <p className="mb-2 text-xs text-dim">
                   {activeCat.name} · {activeCat.desc} · 共 {activeCat.subs.length} 个小类，点小类可单独排除
                 </p>
                 <div className="flex max-h-44 flex-wrap gap-1.5 overflow-y-auto thin-scroll">
@@ -223,7 +227,7 @@ export function CategoryNav({
                         onClick={() => clickSub(sub.words)}
                         title={sub.words.join('、')}
                         className={cn(
-                          'inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11.5px] transition',
+                          'inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition',
                           st === 'on' && 'border-brand/55 bg-brand/12 text-brand',
                           st === 'partial' && 'border-brand/30 bg-brand/5 text-fg/85',
                           st === 'off' &&
@@ -232,20 +236,20 @@ export function CategoryNav({
                       >
                         <TriBox state={st} />
                         {sub.name}
-                        <span className="tabular text-[10px] text-dim/50">{sub.words.length}</span>
+                        <span className="tabular text-xs text-dim">{sub.words.length}</span>
                       </button>
                     )
                   })}
                 </div>
               </>
             ) : (
-              <p className="py-2 text-[11px] text-dim/60">点上面任一大类，查看它里面的小类</p>
+              <p className="py-2 text-xs text-dim">点上面任一大类，查看它里面的小类</p>
             )}
 
             {custom.length > 0 && (
-              <p className="mt-2 border-t border-line/60 pt-2 text-[10.5px] text-dim/60">
+              <p className="mt-2 border-t border-line pt-2 text-xs text-dim">
                 另有 {custom.length} 个自定义关键词不在大类目录里：
-                <span className="text-dim">{custom.slice(0, 8).join('、')}</span>
+                <span className="text-fg">{custom.slice(0, 8).join('、')}</span>
                 {custom.length > 8 ? ' …' : ''}
               </p>
             )}

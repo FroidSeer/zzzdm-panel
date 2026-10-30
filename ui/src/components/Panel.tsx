@@ -34,7 +34,7 @@ export function Panel({
     </>
   )
   const headCls =
-    'flex items-center gap-2 text-[11px] font-semibold tracking-[0.12em] text-dim uppercase'
+    'flex items-center gap-2 text-xs font-semibold tracking-[0.1em] text-dim uppercase'
 
   if (!collapsible) {
     return (
@@ -90,7 +90,7 @@ export function Field({
   const head = (
     <span className="mb-1.5 flex items-baseline justify-between text-xs text-dim">
       {label}
-      {hint && <span className="text-[10px] text-dim/60">{hint}</span>}
+      {hint && <span className="text-xs text-dim">{hint}</span>}
     </span>
   )
   if (plain) {
@@ -110,7 +110,25 @@ export function Field({
 }
 
 export const inputCls =
-  'h-9 w-full rounded-lg border border-line bg-ink-950 px-3 text-sm text-fg outline-none transition placeholder:text-dim/50 focus:border-brand/70 focus:ring-2 focus:ring-brand/20'
+  'h-9 w-full rounded-lg border border-line bg-ink-950 px-3 text-sm text-fg outline-none transition placeholder:text-dim focus:border-brand/70 focus:ring-2 focus:ring-brand/20'
+
+export function SwitchPill({ checked }: { checked: boolean }) {
+  return (
+    <span
+      className={cn(
+        'relative h-5 w-9 shrink-0 self-center rounded-full transition',
+        checked ? 'brand-gradient' : 'bg-ink-600',
+      )}
+    >
+      <span
+        className={cn(
+          'absolute top-0.5 size-4 rounded-full bg-white shadow transition-all',
+          checked ? 'left-4.5' : 'left-0.5',
+        )}
+      />
+    </span>
+  )
+}
 
 export function Switch({
   checked,
@@ -126,26 +144,16 @@ export function Switch({
   return (
     <button
       type="button"
+      role="switch"
+      aria-checked={checked}
       onClick={() => onChange(!checked)}
-      className="flex w-full items-center justify-between gap-3 rounded-lg border border-line bg-ink-950 px-3 py-2 text-sm transition hover:border-ink-600"
+      className="flex w-full items-center justify-between gap-3 rounded-lg border border-line bg-ink-950 px-3 py-2 text-sm transition hover:border-ink-600 hover:bg-ink-900"
     >
       <span className="flex min-w-0 flex-col items-start">
-        <span className="text-fg/90">{label}</span>
-        {hint && <span className="mt-0.5 text-[10.5px] text-dim/70">{hint}</span>}
+        <span className="text-fg">{label}</span>
+        {hint && <span className="mt-0.5 text-xs text-dim">{hint}</span>}
       </span>
-      <span
-        className={cn(
-          'relative h-5 w-9 shrink-0 self-center rounded-full transition',
-          checked ? 'brand-gradient' : 'bg-ink-600',
-        )}
-      >
-        <span
-          className={cn(
-            'absolute top-0.5 size-4 rounded-full bg-white shadow transition-all',
-            checked ? 'left-4.5' : 'left-0.5',
-          )}
-        />
-      </span>
+      <SwitchPill checked={checked} />
     </button>
   )
 }

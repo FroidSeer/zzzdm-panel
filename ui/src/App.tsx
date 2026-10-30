@@ -298,13 +298,58 @@ export default function App() {
     toast(done ? '已清空推送记录' : '清空失败', done)
   }
 
-  const toggle = (id: number, on: boolean) =>
+  const lastToggledRef = useRef<number | null>(null)
+  const displayOrder = useMemo(() => filtered.slice().reverse(), [filtered])
+
+  const toggle = (id: number, on: boolean, shiftKey?: boolean) => {
     setSel((s) => {
       const next = new Set(s)
+      if (shiftKey && lastToggledRef.current !== null) {
+        const ids = displayOrder.map((p) => p.id)
+        const a = ids.indexOf(lastToggledRef.current)
+        const b = ids.indexOf(id)
+        if (a !== -1 && b !== -1) {
+          const [lo, hi] = a < b ? [a, b] : [b, a]
+          for (let i = lo; i <= hi; i++) {
+            if (on) next.add(ids[i])
+            else next.delete(ids[i])
+          }
+          lastToggledRef.current = id
+          return next
+        }
+      }
       if (on) next.add(id)
       else next.delete(id)
+      lastToggledRef.current = id
       return next
     })
+  }
+
+  // 键盘快捷键：Ctrl/Cmd+A 全选/取消当前列表（输入框外生效），Esc 清空当前勾选
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null
+      const inInput =
+        !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)
+      if (inInput) return
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+        if (!filtered.length) return
+        e.preventDefault()
+        const all = filtered.map((p) => p.id)
+        const every = all.every((id) => sel.has(id))
+        setSel((s) => {
+          const next = new Set(s)
+          if (every) all.forEach((id) => next.delete(id))
+          else all.forEach((id) => next.add(id))
+          return next
+        })
+      } else if (e.key === 'Escape' && sel.size > 0) {
+        setSel(new Set())
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [filtered, sel])
 
   // 勾选集合随抓取结果收敛（重新抓取后丢弃已不存在的 id）
   useEffect(() => {
@@ -428,18 +473,19 @@ export default function App() {
           </div>
 
           <div className="mb-4 rounded-xl border border-line bg-ink-800 px-4 pt-3 pb-1">
-            <div className="mb-1 flex items-center gap-2 text-[11px] font-semibold tracking-[0.12em] text-dim uppercase">
+            <div className="mb-1 flex items-center gap-2 text-xs font-semibold tracking-[0.1em] text-dim uppercase">
               <Clock className="size-3" /> 今日推送时段分布
             </div>
             <HourChart posts={posts} />
           </div>
 
-          <div className="sticky top-[61px] z-20 mb-3 flex items-center gap-2 bg-ink-900/85 py-2 backdrop-blur">
+          <div className="sticky top-[var(--header-h)] z-20 mb-3 flex items-center gap-2 bg-ink-900/85 py-2 backdrop-blur">
             <div className="relative flex-1">
               <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-dim" />
               <input
                 value={keyword}
                 onChange={(e) => setKeyword(e.target.value)}
+                aria-label="在已抓到的帖子里搜索关键词"
                 placeholder="在已抓到的帖子里搜关键词（品牌、商品、补贴…）"
                 className={cn(inputCls, 'pl-9')}
               />
@@ -478,11 +524,11 @@ export default function App() {
 
           {sel.size > 0 && (
             <div className="fade-in mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-brand/35 bg-brand/8 px-3 py-2">
-              <span className="tabular text-xs text-brand">
+              <span className="tabular text-xs font-semibold text-brand">
                 已选 {sel.size} 条
               </span>
-              <span className="text-[11px] text-dim">
-                选中「推送勾选」只发这些；「推未推送」发剩下 {pendingCount} 条没发过的
+              <span className="text-xs text-dim">
+                选中「推送勾选」只发这些（支持 Shift 连选 · Esc 清空）；「推未推送」发剩下 {pendingCount} 条没发过的
               </span>
               <div className="ml-auto flex items-center gap-2">
                 <Button size="sm" variant="primary" loading={busy === 'push'} onClick={onPushSelected}>
@@ -501,18 +547,15 @@ export default function App() {
             {filtered.length === 0 ? (
               <Empty hasFetched={!!snap?.last_fetch} keyword={keyword} />
             ) : (
-              filtered
-                .slice()
-                .reverse()
-                .map((p) => (
-                  <PostCard
-                    key={p.id}
-                    post={p}
-                    checked={sel.has(p.id)}
-                    onToggle={toggle}
-                    pushedAt={pushedMap[String(p.id)]}
-                  />
-                ))
+              displayOrder.map((p) => (
+                <PostCard
+                  key={p.id}
+                  post={p}
+                  checked={sel.has(p.id)}
+                  onToggle={toggle}
+                  pushedAt={pushedMap[String(p.id)]}
+                />
+              ))
             )}
           </div>
 
@@ -525,7 +568,7 @@ export default function App() {
         </section>
 
         {/* right：粘住 + 自身可滚动，内容比视口高时也能滚到位 */}
-        <aside className="sidebar-scroll flex min-w-0 flex-col gap-4 lg:sticky lg:top-[77px] lg:max-h-[calc(100vh-93px)] lg:overflow-y-auto lg:pr-1.5 lg:self-start">
+        <aside className="sidebar-scroll flex min-w-0 flex-col gap-4 lg:sticky lg:top-[calc(var(--header-h)+16px)] lg:max-h-[calc(100vh-var(--header-h)-32px)] lg:overflow-y-auto lg:pr-1.5 lg:self-start">
           {cfg && (
             <>
               <Panel
@@ -534,8 +577,8 @@ export default function App() {
                 collapsible
                 defaultOpen={false}
                 badge={
-                  <span className="rounded-full border border-line px-1.5 py-0.5 text-[10px] tracking-normal normal-case text-dim/70">
-                    {cfg.latest ? `最新 ${cfg.latest} 条` : '全部'}
+                  <span className="rounded-full border border-line bg-ink-900 px-2 py-0.5 text-xs tracking-normal normal-case text-dim">
+                    {cfg.latest ? `最新 ${cfg.latest} 条` : '全部'} · {cfg.exclude.length} 词{cfg.daily_time ? ` · 定时 ${cfg.daily_time}` : ''}
                   </span>
                 }
               >
@@ -604,7 +647,7 @@ export default function App() {
                   />
 
                   <div className="rounded-lg border border-line bg-ink-900/60 p-3">
-                    <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.12em] text-dim uppercase">
+                    <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold tracking-[0.1em] text-dim uppercase">
                       <CalendarClock className="size-3" />
                       每日定时（服务端，关掉网页也跑）
                     </div>
@@ -647,15 +690,15 @@ export default function App() {
                     <button
                       type="button"
                       onClick={onClearPushed}
-                      className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-line py-1.5 text-[11px] text-dim transition hover:border-red-500/40 hover:text-red-600 dark:hover:text-red-300"
-                      title="清空后「全部重推」会重新发送所有帖子"
+                      className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-line py-1.5 text-xs text-dim transition hover:border-red-500/40 hover:text-red-600 dark:hover:text-red-300"
+                      title="清空后「推未推送」会重新把所有帖子算作未推"
                     >
                       <Eraser className="size-3" />
                       清空推送记录（当前 {snap.stats.pushed} 条已推）
                     </button>
                   ) : null}
                   {snap && snap.excluded.length > 0 && (
-                    <p className="text-[11px] leading-relaxed text-dim">
+                    <p className="text-xs leading-relaxed text-dim">
                       已过滤 {snap.excluded.length} 条，例如「{snap.excluded[0]?.text.slice(0, 22)}…」
                     </p>
                   )}
@@ -669,12 +712,12 @@ export default function App() {
                 collapsible
                 defaultOpen={false}
                 badge={
-                  <span className="rounded-full border border-line px-1.5 py-0.5 text-[10px] tracking-normal normal-case text-dim/70">
-                    {snap?.log.length ?? 0} 条
+                  <span className="rounded-full border border-line bg-ink-900 px-2 py-0.5 text-xs tracking-normal normal-case text-dim">
+                    {snap?.log.length ?? 0} 条{snap?.log.length ? ` · 最新 ${snap.log[snap.log.length - 1]?.t}` : ''}
                   </span>
                 }
               >
-                <div className="max-h-56 overflow-auto rounded-lg bg-ink-950 p-2.5 font-mono text-[11px] leading-relaxed">
+                <div className="max-h-56 overflow-auto rounded-lg bg-ink-950 p-2.5 font-mono text-xs leading-relaxed">
                   {(snap?.log ?? [])
                     .slice()
                     .reverse()
@@ -684,7 +727,7 @@ export default function App() {
                         <span className="break-all text-dim">{l.m}</span>
                       </div>
                     ))}
-                  {!snap?.log.length && <div className="py-3 text-center text-dim/60">暂无日志</div>}
+                  {!snap?.log.length && <div className="py-3 text-center text-dim">暂无日志</div>}
                 </div>
               </Panel>
             </>
@@ -699,7 +742,7 @@ function Badge({ text, icon, danger, pulse }: { text: string; icon?: React.React
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px]',
+        'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs',
         danger ? 'border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-300' : 'border-line bg-ink-800 text-dim',
         pulse && 'animate-pulse',
       )}
@@ -713,7 +756,7 @@ function Badge({ text, icon, danger, pulse }: { text: string; icon?: React.React
 function Empty({ hasFetched, keyword }: { hasFetched: boolean; keyword: string }) {
   return (
     <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-line py-20 text-center">
-      <Package className="mb-3 size-9 text-dim/40" />
+      <Package className="mb-3 size-9 text-dim" />
       <p className="text-sm text-dim">
         {keyword ? `没有匹配「${keyword}」的帖子` : hasFetched ? '今天还没有抓到帖子' : '点右上角「刷新抓取」开始'}
       </p>

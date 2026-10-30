@@ -39,14 +39,14 @@ export function HourChart({ posts }: { posts: { id: number; time: string }[] }) 
                 style={{
                   height: v === 0 ? '2px' : `${Math.max(pct, 6)}%`,
                   background: active
-                    ? 'linear-gradient(180deg,#ff9b5e,#ff6b35)'
+                    ? 'linear-gradient(180deg,var(--color-brand-soft),var(--color-brand))'
                     : v === 0
                       ? 'var(--color-ink-600)'
-                      : 'linear-gradient(180deg,rgba(255,143,94,0.85),rgba(255,107,53,0.22))',
+                      : 'linear-gradient(180deg,color-mix(in oklab, var(--color-brand-soft) 85%, transparent),color-mix(in oklab, var(--color-brand) 22%, transparent))',
                 }}
               />
               {active && (
-                <div className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1 -translate-x-1/2 rounded-md border border-line bg-ink-700 px-2 py-1 text-[10px] whitespace-nowrap text-fg shadow-lg">
+                <div className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1 -translate-x-1/2 rounded-md border border-line bg-ink-700 px-2 py-1 text-xs whitespace-nowrap text-fg shadow-lg">
                   {String(h).padStart(2, '0')}:00 · {v} 条
                 </div>
               )}
@@ -54,14 +54,14 @@ export function HourChart({ posts }: { posts: { id: number; time: string }[] }) 
           )
         })}
       </div>
-      <div className="tabular mt-1.5 flex justify-between text-[10px] text-dim/70">
+      <div className="tabular mt-1.5 flex justify-between text-xs text-dim">
         <span>00</span>
         <span>06</span>
         <span>12</span>
         <span>18</span>
         <span>23</span>
       </div>
-      <div className="mt-1 text-right text-[10px] text-dim/60">共 {total} 条</div>
+      <div className="mt-1 text-right text-xs text-dim">共 {total} 条</div>
     </div>
   )
 }

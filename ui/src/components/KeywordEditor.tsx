@@ -59,25 +59,25 @@ function SaveBadge({ state, at }: { state?: 'saving' | 'saved' | 'error' | ''; a
   if (!state) return null
   if (state === 'saving') {
     return (
-      <span className="inline-flex items-center gap-0.5 text-dim/70" title="改动正在写入配置文件">
-        <Loader2 className="size-2.5 animate-spin" />
+      <span className="inline-flex items-center gap-0.5 text-dim" title="改动正在写入配置文件">
+        <Loader2 className="size-3 animate-spin" />
         保存中
       </span>
     )
   }
   if (state === 'error') {
     return (
-      <span className="inline-flex items-center gap-0.5 text-red-600 dark:text-red-400/80" title="自动保存失败，可点下方「保存设置」重试">
+      <span className="inline-flex items-center gap-0.5 text-red-600 dark:text-red-400" title="自动保存失败，可点下方「保存设置」重试">
         保存失败
       </span>
     )
   }
   return (
     <span
-      className="inline-flex items-center gap-0.5 text-emerald-600 dark:text-emerald-400/80"
+      className="inline-flex items-center gap-0.5 text-emerald-600 dark:text-emerald-400"
       title="关键词已自动写入 ui_config.json"
     >
-      <Check className="size-2.5" />
+      <Check className="size-3" />
       已存{at ? ` ${at}` : ''}
     </span>
   )
@@ -201,7 +201,7 @@ export function KeywordEditor({
           <button
             type="button"
             onClick={() => onChange(DEFAULT_WORDS)}
-            className="text-dim/70 hover:text-fg"
+            className="text-dim hover:text-fg"
             title={`重置为内置 ${DEFAULT_WORDS.length} 个关键词`}
           >
             重置
@@ -210,7 +210,7 @@ export function KeywordEditor({
             <button
               type="button"
               onClick={() => onChange([])}
-              className="text-dim/70 hover:text-red-600 dark:hover:text-red-400"
+              className="text-dim hover:text-red-600 dark:hover:text-red-400"
               title="清空"
             >
               清空
@@ -280,17 +280,17 @@ export function KeywordEditor({
                 type="button"
                 disabled={busy}
                 onClick={() => fileRef.current?.click()}
-                className="flex h-7 items-center gap-1 rounded-md border border-line bg-ink-800 px-2 text-[11px] text-dim transition hover:border-brand/50 hover:text-fg disabled:opacity-40"
+                className="flex h-7 items-center gap-1 rounded-md border border-line bg-ink-800 px-2 text-xs text-dim transition hover:border-brand/50 hover:text-fg disabled:opacity-40"
                 title="从 .txt / .md 文件追加关键词（已存在的自动跳过）"
               >
                 <Upload className="size-3" />
                 导入
               </button>
-              <span className="text-[10.5px] text-dim/40">导出</span>
+              <span className="text-xs text-dim">导出</span>
               <button
                 type="button"
                 onClick={() => exportAs('txt')}
-                className="flex h-7 items-center gap-1 rounded-md border border-line bg-ink-800 px-2 text-[11px] text-dim transition hover:border-brand/50 hover:text-fg"
+                className="flex h-7 items-center gap-1 rounded-md border border-line bg-ink-800 px-2 text-xs text-dim transition hover:border-brand/50 hover:text-fg"
                 title="导出为纯文本，一行一个词"
               >
                 <Download className="size-3" />
@@ -299,7 +299,7 @@ export function KeywordEditor({
               <button
                 type="button"
                 onClick={() => exportAs('md')}
-                className="flex h-7 items-center gap-1 rounded-md border border-line bg-ink-800 px-2 text-[11px] text-dim transition hover:border-brand/50 hover:text-fg"
+                className="flex h-7 items-center gap-1 rounded-md border border-line bg-ink-800 px-2 text-xs text-dim transition hover:border-brand/50 hover:text-fg"
                 title="导出为 Markdown，带说明注释"
               >
                 <Download className="size-3" />
@@ -311,15 +311,15 @@ export function KeywordEditor({
             {io && (
               <p
                 className={cn(
-                  'mt-1.5 flex items-start gap-1 text-[10.5px] leading-relaxed',
-                  io.kind === 'ok' ? 'text-emerald-600 dark:text-emerald-400/80' : 'text-red-600 dark:text-red-400/80',
+                  'mt-1.5 flex items-start gap-1 text-xs leading-relaxed',
+                  io.kind === 'ok' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400',
                 )}
               >
                 <span className="flex-1">{io.text}</span>
                 <button
                   type="button"
                   onClick={() => setIo(null)}
-                  className="shrink-0 text-dim/50 hover:text-fg"
+                  className="shrink-0 text-dim hover:text-fg"
                   title="关闭提示"
                 >
                   <X className="size-3" />
@@ -330,9 +330,10 @@ export function KeywordEditor({
             {/* 搜索框：关键词多了靠它定位 */}
             {words.length > 12 && (
               <div className="relative mt-2">
-                <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-dim/60" />
+                <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-dim" />
                 <input
-                  className="h-8 w-full rounded-md border border-line bg-ink-900 pr-2.5 pl-8 text-xs text-fg outline-none placeholder:text-dim/50 focus:border-brand/70"
+                  aria-label="在排除关键词中搜索"
+                  className="h-8 w-full rounded-md border border-line bg-ink-900 pr-2.5 pl-8 text-xs text-fg outline-none placeholder:text-dim focus:border-brand/70"
                   placeholder={`在 ${words.length} 个关键词中搜索`}
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
@@ -345,13 +346,13 @@ export function KeywordEditor({
               {visible.map((w) => (
                 <span
                   key={w}
-                  className="group inline-flex items-center gap-1 rounded-md border border-line bg-ink-800 py-0.5 pr-1 pl-2 text-[11.5px] text-fg/90 transition hover:border-red-500/40"
+                  className="group inline-flex items-center gap-1 rounded-md border border-line bg-ink-800 py-0.5 pr-1 pl-2 text-xs text-fg/90 transition hover:border-red-500/40"
                 >
                   {w}
                   <button
                     type="button"
                     onClick={() => remove(w)}
-                    className="rounded p-0.5 text-dim/60 transition hover:bg-red-500/15 hover:text-red-600 dark:hover:text-red-400"
+                    className="rounded p-0.5 text-dim transition hover:bg-red-500/15 hover:text-red-600 dark:hover:text-red-400"
                     title={`移除「${w}」`}
                   >
                     <X className="size-3" />
@@ -359,7 +360,7 @@ export function KeywordEditor({
                 </span>
               ))}
               {!visible.length && (
-                <span className="px-1 py-2 text-[11px] text-dim/60">
+                <span className="px-1 py-2 text-xs text-dim">
                   {q ? `没有匹配「${q}」的关键词` : '还没有关键词，上面输入框添加'}
                 </span>
               )}
@@ -368,14 +369,14 @@ export function KeywordEditor({
             {/* 命中预览：这些词真的拦下了什么 */}
             {hits.length > 0 && (
               <div className="mt-2.5 border-t border-line pt-2">
-                <p className="mb-1.5 text-[10.5px] text-dim/70">本次抓取命中的关键词</p>
+                <p className="mb-1.5 text-xs text-dim">本次抓取命中的关键词</p>
                 <div className="thin-scroll max-h-28 space-y-1 overflow-y-auto">
                   {hits.slice(0, 6).map((h) => (
-                    <div key={h.word} className="flex items-baseline gap-2 text-[11px]">
+                    <div key={h.word} className="flex items-baseline gap-2 text-xs">
                       <span className="shrink-0 rounded bg-red-500/15 px-1.5 py-0.5 text-red-600 dark:text-red-300">
                         {h.word}·{h.n}
                       </span>
-                      <span className="line-clamp-1 text-dim/80">
+                      <span className="line-clamp-1 text-dim">
                         <Hit text={h.sample.slice(0, 40)} word={h.word} />
                       </span>
                     </div>
@@ -386,7 +387,7 @@ export function KeywordEditor({
 
             {/* 内置分组：一键整组补回 */}
             <details className="mt-2.5 border-t border-line pt-2">
-              <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[10.5px] text-dim/70 hover:text-dim">
+              <summary className="flex cursor-pointer list-none items-center gap-1.5 text-xs text-dim hover:text-fg">
                 <ChevronDown className="size-3" />
                 内置分组（{DEFAULT_GROUPS.length} 组 / {DEFAULT_WORDS.length} 词）
               </summary>
@@ -396,8 +397,8 @@ export function KeywordEditor({
                   const all = missing.length === 0
                   return (
                     <div key={g.name} className="flex items-center gap-2">
-                      <span className="w-16 shrink-0 truncate text-[11px] text-dim">{g.name}</span>
-                      <span className="line-clamp-1 flex-1 text-[10.5px] text-dim/60">
+                      <span className="w-16 shrink-0 truncate text-xs text-dim">{g.name}</span>
+                      <span className="line-clamp-1 flex-1 text-xs text-dim">
                         {g.words.join('、')}
                       </span>
                       <button
@@ -405,10 +406,10 @@ export function KeywordEditor({
                         disabled={all}
                         onClick={() => onChange([...words, ...missing])}
                         className={cn(
-                          'shrink-0 rounded px-1.5 py-0.5 text-[10.5px] transition',
+                          'shrink-0 rounded px-1.5 py-0.5 text-xs transition',
                           all
-                            ? 'text-emerald-600 dark:text-emerald-400/60'
-                            : 'text-brand/80 hover:bg-brand/10 hover:text-brand',
+                            ? 'text-emerald-600 dark:text-emerald-400'
+                            : 'text-brand hover:bg-brand/10',
                         )}
                       >
                         {all ? '已全选' : `+${missing.length}`}
@@ -420,7 +421,7 @@ export function KeywordEditor({
             </details>
 
             {words.length > 0 && (
-              <div className="mt-2.5 flex items-center justify-between border-t border-line pt-2 text-[10.5px] text-dim/60">
+              <div className="mt-2.5 flex items-center justify-between border-t border-line pt-2 text-xs text-dim">
                 <span>共 {words.length} 个，点击 × 删除</span>
                 <button
                   type="button"
