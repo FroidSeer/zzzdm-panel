@@ -1,14 +1,74 @@
+import { useState } from 'react'
 import type { ReactNode } from 'react'
+import { ChevronDown } from 'lucide-react'
 import { cn } from '../lib/utils'
 
-export function Panel({ title, icon, children, className }: { title: string; icon?: ReactNode; children: ReactNode; className?: string }) {
+/**
+ * 卡片容器。`collapsible` 时标题行变成可点的条状抽屉头，
+ * 默认收起（`defaultOpen={false}`），只有展开才渲染内容。
+ */
+export function Panel({
+  title,
+  icon,
+  children,
+  className,
+  collapsible,
+  defaultOpen = true,
+  badge,
+}: {
+  title: string
+  icon?: ReactNode
+  children: ReactNode
+  className?: string
+  collapsible?: boolean
+  defaultOpen?: boolean
+  badge?: ReactNode
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+
+  const head = (
+    <>
+      {icon}
+      <span className="truncate">{title}</span>
+      {badge && <span className="ml-1 shrink-0">{badge}</span>}
+    </>
+  )
+  const headCls =
+    'flex items-center gap-2 text-[11px] font-semibold tracking-[0.12em] text-dim uppercase'
+
+  if (!collapsible) {
+    return (
+      <section className={cn('rounded-xl border border-line bg-ink-800 p-4', className)}>
+        <h3 className={cn(headCls, 'mb-3')}>{head}</h3>
+        {children}
+      </section>
+    )
+  }
+
   return (
-    <section className={cn('rounded-xl border border-line bg-ink-800 p-4', className)}>
-      <h3 className="mb-3 flex items-center gap-2 text-[11px] font-semibold tracking-[0.12em] text-dim uppercase">
-        {icon}
-        {title}
-      </h3>
-      {children}
+    <section
+      className={cn(
+        'overflow-hidden rounded-xl border border-line bg-ink-800',
+        open ? 'p-4' : 'px-4 py-0',
+        className,
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className={cn(
+          headCls,
+          'w-full text-left transition hover:text-fg',
+          open ? 'mb-3' : 'py-3',
+        )}
+      >
+        {head}
+        <ChevronDown
+          className={cn('ml-auto size-3.5 shrink-0 transition-transform', open && 'rotate-180')}
+        />
+      </button>
+      {open && children}
     </section>
   )
 }

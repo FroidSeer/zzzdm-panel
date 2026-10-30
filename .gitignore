@@ -7,6 +7,7 @@
 !/assets/
 !/webui_server.py
 !/tg_zzzdm_to_wecom.py
+!/push_channels.py
 !/ui_config.example.json
 !/ui/
 

@@ -8,7 +8,6 @@ import {
   Ban,
   Clock,
   Search,
-  ChevronDown,
   Terminal,
   Settings2,
   Sparkles,
@@ -25,7 +24,8 @@ import {
 } from 'lucide-react'
 import { useApi } from './api'
 import { useToast } from './toast'
-import type { Config, Snapshot } from './types'
+import { useConfirm } from './confirm'
+import type { ChannelName, Config, Snapshot } from './types'
 import { Button } from './components/Button'
 import { PostCard } from './components/PostCard'
 import { HourChart } from './components/HourChart'
@@ -33,6 +33,7 @@ import { Field, inputCls, Panel, Switch } from './components/Panel'
 import { KeywordEditor, KeywordCountBadge } from './components/KeywordEditor'
 import { ExcludedDrawer } from './components/ExcludedDrawer'
 import { CategoryNav } from './components/CategoryNav'
+import { ChannelBar } from './components/ChannelBar'
 import { useTheme } from './lib/theme'
 import { cn } from './lib/utils'
 
@@ -62,15 +63,17 @@ function StatCard({
 }
 
 export default function App() {
-  const { snap, busy, fetchNow, pushNow, saveConfig, clearPushed, refilter } = useApi()
+  const { snap, busy, fetchNow, pushNow, saveConfig, clearPushed, refilter, testChannel } = useApi()
   const { show: toast } = useToast()
+  const confirm = useConfirm()
   const [theme, toggleTheme] = useTheme()
 
   const [cfg, setCfg] = useState<Config | null>(null)
   const [keyword, setKeyword] = useState('')
-  const [showLog, setShowLog] = useState(true)
   const [excludeTick, setExcludeTick] = useState(0)
   const [sel, setSel] = useState<Set<number>>(new Set())
+  /** 正在自检的通道名 */
+  const [testing, setTesting] = useState<ChannelName | ''>('')
   /** 关键词自动保存的反馈：保存中 / 已存（带时间）/ 失败 */
   const [kwSave, setKwSave] = useState<'saving' | 'saved' | 'error' | ''>('')
   // key 默认遮住：截图 / 录屏 / 共享屏幕时不至于直接泄露
@@ -117,6 +120,41 @@ export default function App() {
   }, [cfg, fetchNow])
 
   const patch = (p: Partial<Config>) => setCfg((c) => (c ? { ...c, ...p } : c))
+
+  /** 通道开关 / 凭据改动也自动落盘，免得用户以为点了开关就生效结果没保存 */
+  const onChannelsChange = (p: Partial<Config>) => {
+    if (!cfg) return
+    const next = { ...cfg, ...p }
+    pending.current = next
+    setCfg(next)
+    setKwSave('saving')
+    window.clearTimeout(saveTimer.current)
+    saveTimer.current = window.setTimeout(async () => {
+      const target = pending.current
+      if (!target) return
+      const ok = await saveConfigRef.current(target)
+      setKwSave(ok ? 'saved' : 'error')
+      if (!ok) toast('通道设置保存失败', false)
+    }, 350)
+  }
+
+  /** 通道自检：先确保配置已落盘，再让服务端按最新配置发一条测试 */
+  const onTestChannel = async (name: ChannelName) => {
+    if (!cfg) return
+    setTesting(name)
+    try {
+      window.clearTimeout(saveTimer.current)
+      const ok = await saveConfig(cfg)
+      if (!ok) {
+        toast('通道配置保存失败，未发送测试', false)
+        return
+      }
+      const r = await testChannel(name, cfg)
+      toast(r.ok ? '测试消息已发出，去微信看看' : `发送失败：${r.error}`, !!r.ok)
+    } finally {
+      setTesting('')
+    }
+  }
 
   /** 关键词变更即落盘：合并 350ms 内的连续改动（回车连加、批量导入）只发一次 */
   const onExcludeChange = (exclude: string[]) => {
@@ -206,8 +244,27 @@ export default function App() {
     }
   }
 
+  /**
+   * 全部重推：破坏性操作，必须二次确认。
+   * 一次误点就是上百条图文刷进真实微信群，而且没法撤回。
+   */
   const onPush = async () => {
     if (!cfg) return
+    const ch = cfg.channels
+    const active = ch ? (['wecom', 'serverchan', 'pushplus', 'mp'] as const).filter((n) => ch[n]?.enabled) : []
+    const n = snap?.stats.shown ?? 0
+    const go = await confirm({
+      title: '确认把全部帖子重推一遍？',
+      body: (
+        <>
+          将把 <b className="text-fg">{n}</b> 条帖子（<b className="text-fg">含已经推送过的</b>）再发一次到{' '}
+          <b className="text-fg">{active.length}</b> 个已启用的通道。这个操作无法撤回。
+        </>
+      ),
+      confirmText: '确认重推',
+      danger: true,
+    })
+    if (!go) return
     const r = await pushNow(cfg, { skipPushed: false })
     toast(r.ok ? `推送完成：${r.sent ?? ''}` : `推送失败：${r.error}`, r.ok)
   }
@@ -228,9 +285,17 @@ export default function App() {
   }
 
   const onClearPushed = async () => {
-    if (!snap?.stats.pushed) return
-    const ok = await clearPushed()
-    toast(ok ? '已清空推送记录，下次「全部推送」会重发一遍' : '清空失败', ok)
+    const n = snap?.stats.pushed ?? 0
+    if (!n) return
+    const go = await confirm({
+      title: '确认清空推送记录？',
+      body: `会忘掉「${n} 条已推送」的记录，之后点「推未推送」可能把同一批商品再发一次。这个操作无法撤回。`,
+      confirmText: '清空记录',
+      danger: true,
+    })
+    if (!go) return
+    const done = await clearPushed()
+    toast(done ? '已清空推送记录' : '清空失败', done)
   }
 
   const toggle = (id: number, on: boolean) =>
@@ -278,6 +343,14 @@ export default function App() {
           {busy === 'push' && <Badge text="推送中" pulse />}
 
           <div className="ml-auto flex items-center gap-2">
+            {cfg && (
+              <ChannelBar
+                cfg={cfg}
+                onChange={onChannelsChange}
+                onTest={onTestChannel}
+                testing={testing}
+              />
+            )}
             <button
               type="button"
               onClick={toggleTheme}
@@ -455,9 +528,19 @@ export default function App() {
         <aside className="sidebar-scroll flex min-w-0 flex-col gap-4 lg:sticky lg:top-[77px] lg:max-h-[calc(100vh-93px)] lg:overflow-y-auto lg:pr-1.5 lg:self-start">
           {cfg && (
             <>
-              <Panel title="推送设置" icon={<Settings2 className="size-3.5" />}>
+              <Panel
+                title="推送设置"
+                icon={<Settings2 className="size-3.5" />}
+                collapsible
+                defaultOpen={false}
+                badge={
+                  <span className="rounded-full border border-line px-1.5 py-0.5 text-[10px] tracking-normal normal-case text-dim/70">
+                    {cfg.latest ? `最新 ${cfg.latest} 条` : '全部'}
+                  </span>
+                }
+              >
                 <div className="space-y-3">
-                  <Field label="企业微信 webhook key" hint="群机器人">
+                  <Field label="企业微信 webhook key" hint="群机器人 · 通道在右上角选">
                     <div className="relative">
                       <input
                         className={cn(inputCls, 'pr-10')}
@@ -583,28 +666,26 @@ export default function App() {
                 title="运行日志"
                 icon={<Terminal className="size-3.5" />}
                 className="overflow-hidden"
+                collapsible
+                defaultOpen={false}
+                badge={
+                  <span className="rounded-full border border-line px-1.5 py-0.5 text-[10px] tracking-normal normal-case text-dim/70">
+                    {snap?.log.length ?? 0} 条
+                  </span>
+                }
               >
-                <button
-                  onClick={() => setShowLog((v) => !v)}
-                  className="mb-2 flex w-full items-center justify-between text-xs text-dim hover:text-fg"
-                >
-                  <span>{showLog ? '收起' : '展开'}</span>
-                  <ChevronDown className={cn('size-3.5 transition', showLog && 'rotate-180')} />
-                </button>
-                {showLog && (
-                  <div className="max-h-56 overflow-auto rounded-lg bg-ink-950 p-2.5 font-mono text-[11px] leading-relaxed">
-                    {(snap?.log ?? [])
-                      .slice()
-                      .reverse()
-                      .map((l, i) => (
-                        <div key={i} className="flex gap-2 border-b border-white/4 py-1 last:border-0">
-                          <span className="shrink-0 text-brand">{l.t}</span>
-                          <span className="break-all text-dim">{l.m}</span>
-                        </div>
-                      ))}
-                    {!snap?.log.length && <div className="py-3 text-center text-dim/60">暂无日志</div>}
-                  </div>
-                )}
+                <div className="max-h-56 overflow-auto rounded-lg bg-ink-950 p-2.5 font-mono text-[11px] leading-relaxed">
+                  {(snap?.log ?? [])
+                    .slice()
+                    .reverse()
+                    .map((l, i) => (
+                      <div key={i} className="flex gap-2 border-b border-white/4 py-1 last:border-0">
+                        <span className="shrink-0 text-brand">{l.t}</span>
+                        <span className="break-all text-dim">{l.m}</span>
+                      </div>
+                    ))}
+                  {!snap?.log.length && <div className="py-3 text-center text-dim/60">暂无日志</div>}
+                </div>
               </Panel>
             </>
           )}

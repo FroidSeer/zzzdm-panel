@@ -36,6 +36,37 @@ export interface Config {
   daily_time?: string
   /** 手动推送默认跳过已推送过的 */
   skip_pushed?: boolean
+  /** 推送通道；enabled 为真的通道各推一遍 */
+  channels?: Channels
+}
+
+/** 通道名，与后端 CHANNEL_ORDER 保持一致 */
+export type ChannelName = 'wecom' | 'serverchan' | 'pushplus' | 'mp'
+
+export interface WecomConf {
+  enabled: boolean
+}
+export interface ServerChanConf {
+  enabled: boolean
+  key: string
+}
+export interface PushPlusConf {
+  enabled: boolean
+  token: string
+}
+export interface MpConf {
+  enabled: boolean
+  appid: string
+  secret: string
+  openid: string
+  template_id: string
+  fields: Record<string, string>
+}
+export interface Channels {
+  wecom: WecomConf
+  serverchan: ServerChanConf
+  pushplus: PushPlusConf
+  mp: MpConf
 }
 
 export interface Stats {

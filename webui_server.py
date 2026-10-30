@@ -21,6 +21,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from datetime import datetime, timedelta, timezone
 
 import tg_zzzdm_to_wecom as core
+import push_channels as chans
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(HERE, "ui_config.json")
@@ -54,12 +55,23 @@ DEFAULT_CONFIG = {
     "auto_push": False,      # 服务端定时任务：抓到后是否自动推送未推送过的
     "daily_time": "",        # 服务端每日定时抓取+推送时刻 "HH:MM"，空 = 关闭
     "skip_pushed": False,    # 手动推送时默认跳过已推送过的帖子
+    # 推送通道：enabled 为真的通道各推一遍。企业微信沿用上面的 key 字段。
+    "channels": {
+        "wecom": {"enabled": True},
+        "serverchan": {"enabled": False, "key": ""},
+        "pushplus": {"enabled": False, "token": ""},
+        "mp": {
+            "enabled": False, "appid": "", "secret": "", "openid": "",
+            "template_id": "", "fields": dict(chans.DEFAULT_MP_FIELDS),
+        },
+    },
 }
 
 # 允许客户端通过 /api/* 覆盖的配置键（白名单，避免任意键写进配置文件）
 CONFIG_KEYS = (
     "key", "proxy", "tz", "latest", "auto_refresh_sec", "filter_enabled",
     "exclude", "push_images", "auto_push", "daily_time", "skip_pushed",
+    "channels",
 )
 
 _lock = threading.Lock()
@@ -101,12 +113,32 @@ def load_config():
     if not saved.get("exclude") and saved.get("filter_enabled", True):
         saved.pop("exclude", None)
     cfg.update({k: v for k, v in saved.items() if k in CONFIG_KEYS})
+    cfg["channels"] = _merge_channels(saved.get("channels"))
     return cfg
+
+
+def _merge_channels(saved):
+    """通道配置逐层合并默认值：老配置文件里没有的字段自动补齐，不丢用户已填的值。"""
+    base = {k: dict(v) for k, v in DEFAULT_CONFIG["channels"].items()}
+    if not isinstance(saved, dict):
+        return base
+    for name, conf in saved.items():
+        if name not in base or not isinstance(conf, dict):
+            continue
+        base[name].update(conf)
+        if name == "mp":
+            fields = dict(chans.DEFAULT_MP_FIELDS)
+            if isinstance(conf.get("fields"), dict):
+                fields.update({k: str(v) for k, v in conf["fields"].items()})
+            base[name]["fields"] = fields
+    return base
 
 
 def save_config(cfg):
     """原子写：先写临时文件再 os.replace，避免半截 JSON 覆盖掉好配置。"""
     cfg = {k: v for k, v in cfg.items() if k in CONFIG_KEYS}
+    if "channels" in cfg:
+        cfg["channels"] = _merge_channels(cfg["channels"])
     tmp = CONFIG_PATH + ".tmp"
     try:
         with open(tmp, "w", encoding="utf-8") as f:
@@ -243,14 +275,144 @@ def do_fetch(cfg, quiet=False):
         return False
 
 
+CHANNEL_LABEL = {
+    "wecom": "企业微信",
+    "serverchan": "Server酱",
+    "pushplus": "PushPlus",
+    "mp": "公众号",
+}
+CHANNEL_ORDER = ("wecom", "serverchan", "pushplus", "mp")
+
+
+def enabled_channels(cfg):
+    """返回已启用的通道 [(name, conf), ...]，顺序固定，方便界面上下一一对应。"""
+    raw = cfg.get("channels") or {}
+    out = []
+    for name in CHANNEL_ORDER:
+        conf = raw.get(name) or {}
+        if conf.get("enabled"):
+            out.append((name, conf))
+    return out
+
+
+def _mp_data(conf, p, d, tz):
+    """公众号模板消息的 data：用户配了字段模板就按模板渲染，否则用默认四段。"""
+    ctx = chans.deal_ctx(p, d, tz)
+    tpl = conf.get("fields") or chans.DEFAULT_MP_FIELDS
+    return chans.render_fields(tpl, ctx)
+
+
+def _push_wecom(cfg, pool, log, progress):
+    """企业微信：图文合成一张卡片逐条发。返回 (成功数, 失败数, 命中的帖子 id 集合)。"""
+    opener = core.build_opener(cfg.get("proxy") or None)
+    tz = float(cfg.get("tz", 8.0))
+    with_images = bool(cfg.get("push_images", True))
+    n_img = len([p for p in pool if p.get("photos")]) if with_images else 0
+    log(f"开始推送：{len(pool)} 篇帖子"
+        + (f"，{n_img} 张首图，图文合成一张卡片" if with_images else "（仅文字）"))
+    ok_n, fail_n, detail = core.push_posts(
+        opener, cfg.get("key", ""), pool, tz,
+        with_images=with_images, log=log, progress=progress,
+    )
+    # 按实际成功的帖子 id 记录（detail 里 ids 是该次消息覆盖的帖子）
+    hit = set()
+    legacy = []
+    for it in detail or []:
+        if not it.get("ok"):
+            continue
+        ids_ = it.get("ids")
+        if ids_:
+            hit.update(int(x) for x in ids_)
+        elif it.get("idx") is not None:
+            legacy.append(int(it["idx"]))
+    per = getattr(core, "NEWS_BATCH", 8)
+    for i in legacy:
+        hit.update(p["id"] for p in pool[i:i + per])
+    return ok_n, fail_n, hit
+
+
+def _push_markdown(name, conf, cfg, pool, log, progress):
+    """Server酱 / PushPlus：一条帖子一段 markdown，按字符数分批。"""
+    tz = float(cfg.get("tz", 8.0))
+    with_img = bool(cfg.get("push_images", True))
+    label = CHANNEL_LABEL[name]
+    opener = core.build_opener(cfg.get("proxy") or None)
+
+    pieces = []
+    for p in pool:
+        d = core.parse_deal(p)
+        pieces.append((p, chans.post_markdown(p, d, tz, with_image=with_img)))
+
+    batches, buf, size = [], [], 0
+    for p, md in pieces:
+        if buf and size + len(md) > 4800:
+            batches.append(buf)
+            buf, size = [], 0
+        buf.append((p, md))
+        size += len(md) + 8
+    if buf:
+        batches.append(buf)
+
+    ok_n = fail_n = 0
+    hit = set()
+    total = len(pool)
+    seen = 0
+    for i, batch in enumerate(batches):
+        body = "\n\n---\n\n".join(md for _p, md in batch)
+        title = f"值得买精选 {len(batch)} 条（{i + 1}/{len(batches)}）"
+        if name == "serverchan":
+            ok, r = chans.send_serverchan(opener, conf.get("key", ""), title, body)
+        else:
+            ok, r = chans.send_pushplus(opener, conf.get("token", ""), title, body)
+        if ok:
+            ok_n += 1
+            hit.update(p["id"] for p, _md in batch)
+        else:
+            fail_n += 1
+        seen += len(batch)
+        log(f"[{label} {i + 1}/{len(batches)}] {'成功' if ok else '失败'} -> "
+            f"{r.get('errmsg') or r.get('code') or 'ok'}")
+        if progress:
+            progress(seen, total)
+        time.sleep(1.0)
+    return ok_n, fail_n, hit
+
+
+def _push_mp(conf, cfg, pool, log, progress):
+    """公众号：一条帖子一条模板消息。字段值都是纯文本，图片放不进去。"""
+    tz = float(cfg.get("tz", 8.0))
+    opener = core.build_opener(cfg.get("proxy") or None)
+    ok_n = fail_n = 0
+    hit = set()
+    total = len(pool)
+    for i, p in enumerate(pool):
+        d = core.parse_deal(p)
+        data = _mp_data(conf, p, d, tz)
+        ok, r = chans.send_mp_template(
+            opener, conf.get("appid", ""), conf.get("secret", ""),
+            conf.get("openid", ""), conf.get("template_id", ""),
+            data, url=d.get("url", ""),
+        )
+        if ok:
+            ok_n += 1
+            hit.add(p["id"])
+        else:
+            fail_n += 1
+        log(f"[公众号 {i + 1}/{total}] {'成功' if ok else '失败'} -> "
+            f"{r.get('errmsg') or r.get('errcode') or 'ok'}")
+        if progress:
+            progress(i + 1, total)
+        time.sleep(0.5)
+    return ok_n, fail_n, hit
+
+
 def do_push(cfg, ids=None, skip_pushed=None, force=False):
     """推送。ids 给定时只推这些；否则推全部保留项。
+
+    多通道：channels.*.enabled 为真的通道各推一遍；
+    任一通道成功即视为这条帖子推送成功，写进已推送记录。
     skip_pushed=True 时跳过已推送过的帖子；force=True 无视记录强制重推。
     """
-    key = cfg.get("key")
-    if not key:
-        add_log("推送失败：未配置 webhook key")
-        return False
     with _lock:
         if _state["pushing"]:
             add_log("已有推送进行中")
@@ -258,8 +420,17 @@ def do_push(cfg, ids=None, skip_pushed=None, force=False):
         _state["pushing"] = True
         pool = list(_state["filtered"])
         pushed_now = set(_pushed)
-    skip = bool(cfg.get("skip_pushed", False) if skip_pushed is None else skip_pushed)
     try:
+        targets = enabled_channels(cfg)
+        if not targets:
+            add_log("推送失败：没有启用任何推送通道")
+            return False
+        names = [n for n, _c in targets]
+        if "wecom" in names and not cfg.get("key"):
+            add_log("推送失败：企业微信通道未配置 webhook key")
+            return False
+        skip = bool(cfg.get("skip_pushed", False) if skip_pushed is None else skip_pushed)
+
         if ids:
             want = {int(i) for i in ids}
             by_id = {p["id"]: p for p in _state["posts"]}
@@ -275,42 +446,41 @@ def do_push(cfg, ids=None, skip_pushed=None, force=False):
         if not pool:
             add_log("没有可推送的帖子" + ("（都已推送过）" if skip else ""))
             return False
-        opener = core.build_opener(cfg.get("proxy") or None)
-        tz = float(cfg.get("tz", 8.0))
-        with_images = bool(cfg.get("push_images", True))
-        n_img = len([p for p in pool if p.get("photos")]) if with_images else 0
-        add_log(f"开始推送：{len(pool)} 篇帖子" + (f"，{n_img} 张首图，图文合成一张卡片" if with_images else "（仅文字）"))
 
-        def _log(msg):
-            add_log(msg)
+        add_log(f"推送通道：{' + '.join(CHANNEL_LABEL[n] for n in names)}")
 
-        def _progress(done_n, total_n):
-            # 企微群机器人限速 20 条/分钟，逐条记录会淹没日志，这里按 10 条一档
-            if done_n == total_n or done_n % 10 == 0:
-                add_log(f"推送进度：{done_n}/{total_n}")
+        ok_all = fail_all = 0
+        done = set()
+        for name, conf in targets:
+            label = CHANNEL_LABEL[name]
 
-        ok_n, fail_n, detail = core.push_posts(
-            opener, key, pool, tz, with_images=with_images, log=_log, progress=_progress
-        )
-        # 按实际成功的帖子 id 记录（detail 里 ids 是该次消息覆盖的帖子）
-        done = []
-        legacy = []
-        for it in detail or []:
-            if not it.get("ok"):
+            def _progress(done_n, total_n, _l=label):
+                # 企微群机器人限速 20 条/分钟，逐条记录会淹没日志，这里按 10 条一档
+                if done_n == total_n or done_n % 10 == 0:
+                    add_log(f"{_l}进度：{done_n}/{total_n}")
+
+            try:
+                if name == "wecom":
+                    ok_n, fail_n, hit = _push_wecom(cfg, pool, add_log, _progress)
+                elif name == "mp":
+                    ok_n, fail_n, hit = _push_mp(conf, cfg, pool, add_log, _progress)
+                else:
+                    ok_n, fail_n, hit = _push_markdown(name, conf, cfg, pool, add_log, _progress)
+            except Exception as e:
+                add_log(f"[{label}] 推送异常：{e}")
+                fail_all += 1
                 continue
-            ids_ = it.get("ids")
-            if ids_:
-                done.extend(ids_)
-            elif it.get("idx") is not None:
-                legacy.append(int(it["idx"]))
-        per = getattr(core, "NEWS_BATCH", 8)
-        for i in legacy:
-            done.extend(p["id"] for p in pool[i:i + per])
+            ok_all += ok_n
+            fail_all += fail_n
+            done |= hit
+            add_log(f"[{label}] 结束：成功 {ok_n} 条，失败 {fail_n} 条")
+            time.sleep(1.0)
+
         if done:
-            mark_pushed(done)
-            add_log(f"已记录 {len(set(done))} 条为已推送")
-        add_log(f"推送结束：成功 {ok_n} 条，失败 {fail_n} 条，覆盖 {len(pool)} 篇帖子")
-        return fail_n == 0
+            mark_pushed(sorted(done))
+            add_log(f"已记录 {len(done)} 条为已推送")
+        add_log(f"推送结束：成功 {ok_all} 条，失败 {fail_all} 条，覆盖 {len(pool)} 篇帖子")
+        return fail_all == 0
     except Exception as e:
         add_log(f"推送异常：{e}")
         return False
@@ -742,6 +912,8 @@ class Handler(BaseHTTPRequestHandler):
             if k in body and body[k] != cfg.get(k):
                 cfg[k] = body[k]
                 changed = True
+        if "channels" in body:
+            cfg["channels"] = _merge_channels(body["channels"])
         if changed:
             save_config(cfg)
 
@@ -782,6 +954,42 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"ok": ok, "sent": summary,
                                     "error": "" if ok else " / ".join(tail),
                                     "stats": snapshot(cfg)["stats"]})
+
+        if self.path == "/api/test_channel":
+            # 通道自检：发一条测试消息，验证 key/token/模板是否可用
+            name = str(body.get("name") or "")
+            if name not in CHANNEL_LABEL:
+                return self._send(200, {"ok": False, "error": f"未知通道 {name}"})
+            conf = (cfg.get("channels") or {}).get(name) or {}
+            opener = core.build_opener(cfg.get("proxy") or None)
+            try:
+                if name == "wecom":
+                    ok, r = core.send_post_text(
+                        opener, cfg.get("key", ""),
+                        "✅ zzzdm 面板连通测试\n如果你看到这条，说明企业微信通道可用。")
+                elif name == "serverchan":
+                    ok, r = chans.send_serverchan(
+                        opener, conf.get("key", ""), "zzzdm 面板连通测试",
+                        "✅ 如果你看到这条，说明 Server酱通道可用。")
+                elif name == "pushplus":
+                    ok, r = chans.send_pushplus(
+                        opener, conf.get("token", ""), "zzzdm 面板连通测试",
+                        "✅ 如果你看到这条，说明 PushPlus 通道可用。")
+                else:
+                    ok, r = chans.send_mp_template(
+                        opener, conf.get("appid", ""), conf.get("secret", ""),
+                        conf.get("openid", ""), conf.get("template_id", ""),
+                        chans.render_fields(conf.get("fields") or chans.DEFAULT_MP_FIELDS, {
+                            "head": "zzzdm 面板连通测试", "name": "连通测试", "price": "0",
+                            "shop": "本地面板", "price_note": "这是一条测试消息",
+                            "coupon": "", "value": "", "url": "",
+                            "photo": "", "time": "", "text": "通道自检",
+                        }))
+            except Exception as e:
+                return self._send(200, {"ok": False, "error": str(e)})
+            msg = r.get("errmsg") or r.get("message") or ("成功" if ok else "失败")
+            add_log(f"[{CHANNEL_LABEL[name]}] 连通测试：{'成功' if ok else '失败'} -> {msg}")
+            return self._send(200, {"ok": bool(ok), "error": "" if ok else msg})
 
         if self.path == "/api/config":
             return self._send(200, {"ok": True, "config": cfg})

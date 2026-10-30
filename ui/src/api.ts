@@ -117,5 +117,21 @@ export function useApi() {
     }
   }, [refresh])
 
-  return { snap, busy, refresh, fetchNow, pushNow, saveConfig, clearPushed, refilter }
+  /** 通道自检：发一条测试消息 */
+  const testChannel = useCallback(
+    async (name: string, cfg: Config) => {
+      try {
+        const r = await post<{ ok: boolean; error?: string }>('/api/test_channel', {
+          name,
+          ...diffConfig(cfg, baseCfg.current),
+        })
+        return r
+      } catch (e) {
+        return { ok: false, error: String(e) }
+      }
+    },
+    [],
+  )
+
+  return { snap, busy, refresh, fetchNow, pushNow, saveConfig, clearPushed, refilter, testChannel }
 }
