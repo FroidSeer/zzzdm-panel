@@ -283,8 +283,8 @@ export function Lightbox({
           'pointer-events-none absolute bottom-5 left-1/2 -translate-x-1/2 px-4 text-center',
         )}
       >
-        {caption && <p className="line-clamp-2 max-w-[80vw] text-xs text-white/70">{caption}</p>}
-        <p className="mt-1 flex items-center justify-center gap-1 text-[10.5px] text-white/40">
+        {caption && <p className="line-clamp-2 max-w-[80vw] text-xs text-white/85">{caption}</p>}
+        <p className="mt-1 flex items-center justify-center gap-1 text-xs text-white/75">
           {zoomed ? <ZoomOut className="size-3" /> : <ZoomIn className="size-3" />}
           点击图片{zoomed ? '还原' : '放大'} · Esc 关闭{multi ? ' · ←→ 切换' : ''}
         </p>

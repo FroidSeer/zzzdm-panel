@@ -241,7 +241,8 @@ export function KeywordEditor({
             <div className="flex gap-1.5">
               <input
                 ref={inputRef}
-                className="h-8 flex-1 rounded-md border border-line bg-ink-900 px-2.5 text-xs text-fg outline-none placeholder:text-dim/50 focus:border-brand/70 focus:ring-2 focus:ring-brand/20"
+                aria-label="添加排除关键词"
+                className="h-8 flex-1 rounded-md border border-line bg-ink-900 px-2.5 text-xs text-fg outline-none placeholder:text-dim focus:border-brand/70 focus:ring-2 focus:ring-brand/20"
                 placeholder="输入后回车添加，支持逗号批量：尿裤, 婴儿"
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
