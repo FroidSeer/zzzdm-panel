@@ -14,6 +14,8 @@
 # 前端依赖与构建产物
 /ui/node_modules/
 /ui/dist/
+# 用 pnpm 管理（仓库里已有 pnpm-lock.yaml），npm 顺手生成的锁文件不入库
+/ui/package-lock.json
 
 # 运行时数据：含企业微信 webhook key，绝不入库
 /ui_config.json
